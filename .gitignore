@@ -8,6 +8,10 @@ dist/
 ahk/
 ahk.zip
 
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
 # OS / editor
 .DS_Store
 Thumbs.db

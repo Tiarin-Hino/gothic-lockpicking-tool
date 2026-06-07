@@ -158,7 +158,7 @@
 
   <div class="panel">
     <h2>4 · Auto-play (optional)</h2>
-    <p class="hint">Turns the solution into a list of key presses. Selection starts on the <b>last</b> mechanism; W/S move the selection between mechanisms, A/D slide the selected one. After you Solve, click <b>Copy key plan</b>, then run <code>autoplay.py</code> — it counts down and presses the keys for you (switch to the game during the countdown).</p>
+    <p class="hint">Turns the solution into a list of key presses. Selection starts on the <b>last</b> mechanism; W/S move the selection between mechanisms, A/D slide the selected one. In the <b>desktop app</b> you can press Execute below to play it automatically. On the website, click <b>Copy key plan</b> and run the autoplayer.</p>
     <div class="row" style="margin-bottom:12px;">
       <label>Selection moves toward M1 with
         <select id="kPrev"><option value="w" selected>W</option><option value="s">S</option><option value="a">A</option><option value="d">D</option></select>
@@ -179,6 +179,29 @@
       <button id="copyPlan" class="primary">⧉ Copy key plan</button>
     </div>
     <div id="planOut"></div>
+
+    <!-- Desktop-app-only controls (shown when running inside the Tauri app) -->
+    <div id="appExec" style="display:none; margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
+      <p class="hint">Desktop app detected — press <b>Execute</b> to focus the game and play the moves automatically.</p>
+      <div class="row" style="margin-bottom:12px;">
+        <label>Game window title
+          <input id="gameTitle" type="text" value="Gothic 1 Remake" style="width:170px;">
+        </label>
+        <label>Countdown (s)
+          <input id="exCountdown" type="number" min="0" max="30" value="5" style="width:64px;">
+        </label>
+        <label>Delay between keys (ms)
+          <input id="exDelay" type="number" min="0" max="2000" value="180" style="width:74px;">
+        </label>
+        <label>Key hold (ms)
+          <input id="exHold" type="number" min="0" max="500" value="40" style="width:64px;">
+        </label>
+      </div>
+      <div class="row">
+        <button id="execBtn" class="primary">▶ Execute in game</button>
+        <span id="execStatus" class="hint" style="margin:0;"></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -376,19 +399,16 @@ function populateStart() {
   $('kStartLabel').textContent = 'the last mechanism (M' + N + ')';
 }
 
-function buildPlan() {
-  const out = $('planOut');
-  if (!lastSteps) { out.innerHTML = '<span class="err">Solve first (section 3).</span>'; return null; }
-  if (lastSteps.length === 0) { out.innerHTML = '<span class="ok">Nothing to do — already solved.</span>'; return ''; }
-
+// Returns { keys:[...], human:[...] }, or null (not solved), or {keys:[]} (already solved).
+function computePlan() {
+  if (!lastSteps) return null;
   const kPrev = $('kPrev').value;   // toward M1 (lower index)
   const kNext = $('kNext').value;   // toward MN (higher index)
   const kLeft = $('kLeft').value;
   const kRight = $('kRight').value;
   let sel = N - 1; // selection always starts on the last mechanism
 
-  const keys = [];
-  const human = [];
+  const keys = [], human = [];
   for (const mv of lastSteps) {
     const target = mv.i;
     while (sel > target) { keys.push(kPrev); human.push(kPrev.toUpperCase() + ' (select M' + sel + ')'); sel--; }
@@ -398,13 +418,21 @@ function buildPlan() {
     keys.push(mk);
     human.push(mk.toUpperCase() + ' (M' + (target + 1) + ' ' + (isR ? 'Right' : 'Left') + ')');
   }
+  return { keys, human };
+}
 
-  const planStr = keys.join(' ');
+function buildPlan() {
+  const out = $('planOut');
+  const plan = computePlan();
+  if (plan == null) { out.innerHTML = '<span class="err">Solve first (section 3).</span>'; return null; }
+  if (plan.keys.length === 0) { out.innerHTML = '<span class="ok">Nothing to do — already solved.</span>'; return ''; }
+
+  const planStr = plan.keys.join(' ');
   out.innerHTML =
-    '<div class="legend" style="margin-bottom:8px;"><b>' + keys.length + ' key presses:</b></div>' +
+    '<div class="legend" style="margin-bottom:8px;"><b>' + plan.keys.length + ' key presses:</b></div>' +
     '<div style="font-family:monospace;background:#16120e;padding:10px 12px;border-radius:6px;' +
     'word-break:break-all;color:var(--gold);font-size:15px;letter-spacing:2px;">' + planStr.toUpperCase() + '</div>' +
-    '<div class="legend" style="margin-top:8px;">' + human.join(' · ') + '</div>';
+    '<div class="legend" style="margin-top:8px;">' + plan.human.join(' · ') + '</div>';
   return planStr;
 }
 
@@ -413,9 +441,63 @@ function copyPlan() {
   if (planStr == null) return;
   navigator.clipboard.writeText(planStr).then(
     () => { const s = $('planOut'); s.insertAdjacentHTML('afterbegin',
-      '<div class="ok" style="margin-bottom:8px;">✓ Copied to clipboard — now run autoplay.py</div>'); },
+      '<div class="ok" style="margin-bottom:8px;">✓ Copied to clipboard — now run the autoplayer</div>'); },
     () => { alert('Copy failed — select the plan text manually.\n\n' + planStr); }
   );
+}
+
+/* ---------- Desktop app: Execute directly ---------- */
+const TAURI = (typeof window !== 'undefined') && window.__TAURI__;
+
+function setExecStatus(msg, kind) {
+  const el = $('execStatus');
+  el.className = 'hint';
+  el.style.margin = '0';
+  if (kind === 'ok') el.className = 'ok';
+  if (kind === 'err') el.className = 'err';
+  el.textContent = msg;
+}
+
+async function executePlan() {
+  buildPlan(); // also renders the plan text
+  const plan = computePlan();
+  if (plan == null) { setExecStatus('Solve first (section 3).', 'err'); return; }
+  if (plan.keys.length === 0) { setExecStatus('Already solved — nothing to play.', 'ok'); return; }
+
+  const opts = {
+    keys: plan.keys,
+    gameTitle: ($('gameTitle').value || 'Gothic 1 Remake').trim(),
+    countdown: Math.max(0, parseInt($('exCountdown').value, 10) || 0),
+    delayMs: Math.max(0, parseInt($('exDelay').value, 10) || 0),
+    holdMs: Math.max(0, parseInt($('exHold').value, 10) || 0)
+  };
+
+  $('execBtn').disabled = true;
+  setExecStatus('Starting…');
+  try {
+    await TAURI.core.invoke('execute_plan', { opts });
+  } catch (e) {
+    setExecStatus('Error: ' + e, 'err');
+    $('execBtn').disabled = false;
+  }
+}
+
+function initTauri() {
+  if (!TAURI) return;
+  $('appExec').style.display = 'block';
+  $('execBtn').onclick = executePlan;
+  TAURI.event.listen('autoplay', (ev) => {
+    const p = ev.payload || {};
+    if (p.phase === 'done') {
+      setExecStatus('✓ ' + p.message, 'ok');
+      $('execBtn').disabled = false;
+    } else if (p.phase === 'error') {
+      setExecStatus('Error: ' + p.message, 'err');
+      $('execBtn').disabled = false;
+    } else {
+      setExecStatus(p.message || (p.current + '/' + p.total));
+    }
+  });
 }
 
 /* ---------- Reset everything ---------- */
@@ -466,6 +548,7 @@ $('copyPlan').onclick = copyPlan;
 
 if (!load()) init(4);
 populateStart();
+initTauri();
 </script>
 </body>
 </html>

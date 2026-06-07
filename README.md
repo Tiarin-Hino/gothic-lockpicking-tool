@@ -7,8 +7,8 @@ A solver and optional auto-player for the multi-mechanism lockpick puzzle in the
   the shortest sequence of moves to open it. Runs entirely in your browser,
   nothing to install, works on any OS.
   👉 **https://gothic-lockpicking-tool.tiarinhino.com**
-- **Auto-player** *(Windows, optional)* — a tiny program that reads the solution
-  and presses the keys for you, auto-focusing the game window.
+- **Desktop app** *(Windows, optional)* — the same tool as a downloadable app
+  with an **Execute** button that focuses the game and plays the moves for you.
 
 ---
 
@@ -28,38 +28,29 @@ the shortest combination of moves that centres them all.
    to Same / Opposite based on what you observe.
 4. Click **Solve**. You get a numbered list of moves.
 
-## Auto-player (Windows)
+## Desktop app (Windows)
 
-> Convenience only — it just presses the same keys the solver lists.
+A single portable `.exe` — the full solver UI plus a one-click auto-player.
 
-1. In the web tool, after solving, click **Copy key plan**.
-2. Download **`gothic-autoplay.exe`** from the
-   [Releases page](../../releases) and run it.
-3. It focuses **Gothic 1 Remake**, counts down, and plays the keys.
-   Abort any time with **Ctrl + Alt + X**.
-
-### Configuration
-
-Drop an `autoplay.ini` next to the exe to tweak behaviour (a sample ships with
-each release):
-
-```ini
-[settings]
-gameTitle=Gothic 1 Remake
-countdown=5         ; seconds before it starts
-delayBetween=180    ; ms between presses — raise if the game misses inputs
-holdTime=40         ; ms each key is held — raise if presses don't register
-```
+1. Download **`gothic-lockpicking-tool.exe`** from the
+   [Releases page](../../releases) and run it (no install needed; uses the
+   WebView2 runtime that ships with Windows 10/11).
+2. Set up the lock and click **Solve** exactly like on the website.
+3. In section 4, set the game window title / timings if needed and click
+   **Execute in game**. It focuses **Gothic 1 Remake**, counts down, then plays
+   the moves. Progress shows live; the countdown lets you alt-tab if focus
+   doesn't catch.
 
 > **Heads-up:** the exe is **not code-signed**, so Windows SmartScreen may warn
 > on first run ("Windows protected your PC" → *More info* → *Run anyway*). The
 > full source is in this repo and the exe is built automatically by GitHub
-> Actions from `automation/autoplay.ahk` — nothing hidden.
+> Actions — nothing hidden.
 
 ## Linux / macOS / advanced users (Python)
 
-The `automation/` folder also has a cross-platform Python version of the
-auto-player (standard library only, no `pip install`):
+On non-Windows systems, use the **web tool** for the solution and either follow
+the move list in-game or use the cross-platform Python auto-player in the
+`automation/` folder (standard library only, no `pip install`):
 
 ```bash
 # 1. Copy the key plan from the web tool, then:
@@ -76,21 +67,21 @@ Windows users can also double-click `automation/autoplay.bat`.
 ## Repository layout
 
 ```
-web/index.html                  the solver web tool (static; deploy this)
-automation/autoplay.ahk         Windows auto-player source (compiled by CI)
-automation/autoplay.ini         sample config
-automation/autoplay.py / .bat   cross-platform / Windows Python option
-.github/workflows/build-exe.yml compiles the .ahk into a release .exe
+web/index.html                  the solver UI (static; also the app frontend)
+src-tauri/                       Tauri desktop app (Rust backend: keys + focus)
+automation/autoplay.py / .bat    cross-platform Python auto-player option
+automation/autoplay.ahk / .ini   legacy AutoHotkey script (kept for reference)
+.github/workflows/build-app.yml  builds the portable .exe on a release
 ```
 
-## Building the exe yourself
+## Building the app yourself
 
-Push a tag (`git tag v1.0.0 && git push --tags`) or run the **Build autoplay
-exe** workflow manually from the Actions tab. It downloads AutoHotkey v2,
-compiles `automation/autoplay.ahk`, and attaches `gothic-autoplay.exe` to a
-GitHub Release. To build locally instead, install
-[AutoHotkey v2](https://www.autohotkey.com/) and run its `Ahk2Exe` compiler on
-`automation/autoplay.ahk`.
+Push a tag (`git tag v1.0.0 && git push --tags`) or run the **Build desktop
+app** workflow from the Actions tab — it compiles `src-tauri` on a Windows
+runner and attaches `gothic-lockpicking-tool.exe` to a GitHub Release. To build
+locally, install [Rust](https://rustup.rs/) and the
+[Tauri prerequisites](https://tauri.app/start/prerequisites/), then run
+`cargo build --release` in `src-tauri/` (or `cargo tauri dev` to run it live).
 
 ## Deploying the web tool (maintainer notes — AWS)
 

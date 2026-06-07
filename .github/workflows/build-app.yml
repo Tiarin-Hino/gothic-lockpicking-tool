@@ -1,0 +1,51 @@
+name: Build desktop app
+
+on:
+  workflow_dispatch:        # run manually from the Actions tab
+  push:
+    tags:
+      - 'v*'                # tagging v1.0.0 etc. builds + publishes a Release
+
+permissions:
+  contents: write           # needed to create the Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build portable exe
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Collect exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = "src-tauri\target\release\gothic-lockpicking-tool.exe"
+          if (-not (Test-Path $exe)) { throw "Built exe not found at $exe" }
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item $exe dist\
+          Get-Item dist\gothic-lockpicking-tool.exe | Select-Object Name, Length
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gothic-lockpicking-tool
+          path: dist/gothic-lockpicking-tool.exe
+
+      - name: Publish Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/gothic-lockpicking-tool.exe
