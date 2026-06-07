@@ -51,11 +51,13 @@ jobs:
           $base    = (Get-ChildItem -Path ahk -Recurse -Filter "AutoHotkey64.exe" | Select-Object -First 1).FullName
           if (-not $ahk2exe) { throw "Ahk2Exe.exe not found." }
           if (-not $base)    { throw "AutoHotkey64.exe base not found." }
+          $out = Join-Path $PWD "gothic-autoplay.exe"
           Write-Host "Compiler: $ahk2exe"
           Write-Host "Base:     $base"
-          & $ahk2exe /in "automation\autoplay.ahk" /out "gothic-autoplay.exe" /base "$base"
-          if (-not (Test-Path "gothic-autoplay.exe")) { throw "Compilation produced no exe." }
-          Get-Item "gothic-autoplay.exe" | Select-Object Name, Length
+          Write-Host "Output:   $out"
+          & $ahk2exe /in "automation\autoplay.ahk" /out "$out" /base "$base"
+          if (-not (Test-Path $out)) { throw "Compilation produced no exe." }
+          Get-Item $out | Select-Object Name, Length
 
       - name: Bundle exe + ini
         shell: pwsh
