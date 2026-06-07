@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+*.exe
+ahk/
+ahk.zip
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

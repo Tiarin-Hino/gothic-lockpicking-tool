@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gothic Remake Lock Solver</title>
+<style>
+  :root {
+    --bg: #1a1714;
+    --panel: #262019;
+    --panel2: #2f2820;
+    --line: #463a2c;
+    --gold: #c9a24b;
+    --gold-dim: #8a7438;
+    --text: #e8dcc4;
+    --muted: #9c8e74;
+    --blue: #4a8fd6;
+    --orange: #d6814a;
+    --green: #5fb84a;
+    --red: #c75450;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  h1 { color: var(--gold); margin: 0 0 4px; font-size: 24px; letter-spacing: .5px; }
+  h2 { color: var(--gold); font-size: 16px; margin: 0 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  .sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 18px; margin-bottom: 18px;
+  }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  label { font-size: 13px; color: var(--muted); }
+  select, button, input {
+    background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 7px 12px; font-size: 14px; font-family: inherit;
+  }
+  button { cursor: pointer; transition: .12s; }
+  button:hover { border-color: var(--gold); }
+  button.primary {
+    background: var(--gold-dim); color: #1a1714; font-weight: 600;
+    border-color: var(--gold); padding: 9px 22px; font-size: 15px;
+  }
+  button.primary:hover { background: var(--gold); }
+
+  /* Mechanisms */
+  .mechs { display: flex; flex-direction: column; gap: 14px; }
+  .mech { display: flex; align-items: center; gap: 14px; }
+  .mech-label { width: 130px; color: var(--gold); font-weight: 600; font-size: 14px; flex-shrink: 0; }
+  .holes { display: flex; gap: 8px; }
+  .hole {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 2px solid var(--line); background: #16120e;
+    cursor: pointer; position: relative; transition: .1s;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hole:hover { border-color: var(--gold); }
+  .hole.center { border-color: var(--gold-dim); border-style: dashed; }
+  .hole .pin {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--blue); box-shadow: 0 0 6px rgba(74,143,214,.6);
+  }
+  .hole.solved .pin { background: var(--green); box-shadow: 0 0 8px rgba(95,184,74,.7); }
+  .mech-auto { font-size: 11px; color: var(--muted); width: 60px; }
+
+  /* Matrix */
+  table { border-collapse: collapse; margin-top: 8px; }
+  th, td { padding: 4px; text-align: center; font-size: 12px; }
+  th { color: var(--muted); font-weight: 500; }
+  .rowhdr { color: var(--gold); text-align: right; padding-right: 10px; white-space: nowrap; font-weight: 600; }
+  .cell {
+    width: 64px; height: 34px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--line); font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; user-select: none;
+  }
+  .cell.none { background: #221d17; color: var(--muted); }
+  .cell.same { background: rgba(74,143,214,.18); color: var(--blue); border-color: var(--blue); }
+  .cell.opp  { background: rgba(214,129,74,.18); color: var(--orange); border-color: var(--orange); }
+  .cell.diag { outline: 1px dashed var(--gold-dim); outline-offset: -3px; }
+
+  /* Solution */
+  #solution { margin-top: 4px; }
+  .step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 14px;
+  }
+  .step:last-child { border-bottom: none; }
+  .step .num {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    background: var(--gold-dim); color: #1a1714; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+  }
+  .step .dir { font-weight: 600; }
+  .step .dir.L { color: var(--orange); }
+  .step .dir.R { color: var(--blue); }
+  .step .state { color: var(--muted); font-size: 12px; font-family: monospace; margin-left: auto; }
+  .ok { color: var(--green); font-weight: 600; }
+  .err { color: var(--red); font-weight: 600; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .legend b { color: var(--text); }
+  .hint { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+  code { background: #16120e; padding: 1px 5px; border-radius: 3px; color: var(--gold); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙ Gothic Remake — Lock Solver</h1>
+  <p class="sub">Set the starting pin positions, describe how each mechanism pushes the others, then hit Solve. The goal is to get every pin into the dashed <b style="color:var(--gold-dim)">center</b> hole.</p>
+
+  <div class="panel">
+    <div class="row">
+      <label>Mechanisms:
+        <select id="count">
+          <option>1</option><option>2</option><option>3</option>
+          <option selected>4</option><option>5</option><option>6</option><option>7</option>
+        </select>
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="clamp"> Pins clamp at the edges (instead of the move being blocked)
+      </label>
+      <button id="reset">Reset positions to center</button>
+      <button id="resetAll">Reset everything</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>1 · Starting positions</h2>
+    <p class="hint">Click a hole to place each mechanism's pin where it currently sits in the game.</p>
+    <div class="mechs" id="mechs"></div>
+  </div>
+
+  <div class="panel">
+    <h2>2 · Interaction matrix</h2>
+    <p class="hint">Read each row as: <i>"When I move <b>this</b> mechanism, the column mechanism reacts by…"</i> Click a cell to cycle <span style="color:var(--muted)">None</span> → <span style="color:var(--blue)">Same</span> → <span style="color:var(--orange)">Opposite</span>. The dashed diagonal is how a mechanism moves itself (normally <span style="color:var(--blue)">Same</span>).</p>
+    <div id="matrix"></div>
+    <p class="legend">
+      <b style="color:var(--blue)">Same direction</b> = it moves the way you pushed. &nbsp;
+      <b style="color:var(--orange)">Opposite direction</b> = it moves the other way. &nbsp;
+      Map the game's <i>mirror</i> / <i>counter</i> to whichever of these you observe.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>3 · Solve</h2>
+    <div class="row" style="margin-bottom:14px;">
+      <button class="primary" id="solve">▶ Solve</button>
+      <span id="status" class="hint" style="margin:0;"></span>
+    </div>
+    <div id="solution"></div>
+  </div>
+
+  <div class="panel">
+    <h2>4 · Auto-play (optional)</h2>
+    <p class="hint">Turns the solution into a list of key presses. Selection starts on the <b>last</b> mechanism; W/S move the selection between mechanisms, A/D slide the selected one. After you Solve, click <b>Copy key plan</b>, then run <code>autoplay.py</code> — it counts down and presses the keys for you (switch to the game during the countdown).</p>
+    <div class="row" style="margin-bottom:12px;">
+      <label>Selection moves toward M1 with
+        <select id="kPrev"><option value="w" selected>W</option><option value="s">S</option><option value="a">A</option><option value="d">D</option></select>
+      </label>
+      <label>toward M<span id="kNextMax">N</span> with
+        <select id="kNext"><option value="s" selected>S</option><option value="w">W</option><option value="a">A</option><option value="d">D</option></select>
+      </label>
+      <label>Move Left =
+        <select id="kLeft"><option value="a" selected>A</option><option value="d">D</option></select>
+      </label>
+      <label>Move Right =
+        <select id="kRight"><option value="d" selected>D</option><option value="a">A</option></select>
+      </label>
+      <label>Selection starts at <b id="kStartLabel" style="color:var(--gold)">the last mechanism</b></label>
+    </div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="buildPlan">Build key plan</button>
+      <button id="copyPlan" class="primary">⧉ Copy key plan</button>
+    </div>
+    <div id="planOut"></div>
+  </div>
+</div>
+
+<script>
+const HOLES = 7;
+const CENTER = 3;
+const $ = id => document.getElementById(id);
+
+let N = 4;
+let positions = [];   // current/initial pin index per mechanism
+let matrix = [];      // matrix[i][j] in {0:none, 1:same, 2:opp}
+let lastSteps = null; // most recent solution's steps
+
+function init(n) {
+  N = n;
+  positions = Array.from({length:N}, () => CENTER);
+  matrix = Array.from({length:N}, (_,i) =>
+    Array.from({length:N}, (_,j) => (i === j ? 1 : 0)));
+  renderMechs();
+  renderMatrix();
+  clearSolution();
+}
+
+/* ---------- Mechanisms UI ---------- */
+function renderMechs() {
+  const c = $('mechs');
+  c.innerHTML = '';
+  for (let i = 0; i < N; i++) {
+    const row = document.createElement('div');
+    row.className = 'mech';
+    const lbl = document.createElement('div');
+    lbl.className = 'mech-label';
+    lbl.textContent = 'Mechanism ' + (i + 1);
+    row.appendChild(lbl);
+
+    const holes = document.createElement('div');
+    holes.className = 'holes';
+    for (let h = 0; h < HOLES; h++) {
+      const hole = document.createElement('div');
+      hole.className = 'hole' + (h === CENTER ? ' center' : '');
+      if (positions[i] === h) {
+        const pin = document.createElement('div');
+        pin.className = 'pin';
+        if (h === CENTER) hole.classList.add('solved');
+        hole.appendChild(pin);
+      }
+      hole.onclick = () => { positions[i] = h; renderMechs(); save(); };
+      holes.appendChild(hole);
+    }
+    row.appendChild(holes);
+    c.appendChild(row);
+  }
+}
+
+/* ---------- Matrix UI ---------- */
+const CLS = ['none','same','opp'];
+const TXT = ['—','Same','Opp'];
+function renderMatrix() {
+  const c = $('matrix');
+  const t = document.createElement('table');
+  // header
+  const head = document.createElement('tr');
+  head.appendChild(el('th',''));
+  for (let j = 0; j < N; j++) head.appendChild(el('th','M' + (j+1)));
+  t.appendChild(head);
+  for (let i = 0; i < N; i++) {
+    const tr = document.createElement('tr');
+    tr.appendChild(el('td','Move M' + (i+1) + ' →', 'rowhdr'));
+    for (let j = 0; j < N; j++) {
+      const td = document.createElement('td');
+      const cell = document.createElement('div');
+      const v = matrix[i][j];
+      cell.className = 'cell ' + CLS[v] + (i === j ? ' diag' : '');
+      cell.textContent = TXT[v];
+      cell.onclick = () => {
+        matrix[i][j] = (matrix[i][j] + 1) % 3;
+        renderMatrix(); save();
+      };
+      td.appendChild(cell);
+      tr.appendChild(td);
+    }
+    t.appendChild(tr);
+  }
+  c.innerHTML = '';
+  c.appendChild(t);
+}
+function el(tag, text, cls) {
+  const e = document.createElement(tag);
+  e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
+}
+
+/* ---------- Solver (BFS shortest path) ---------- */
+function applyMove(state, i, dir, clamp) {
+  // dir: -1 left, +1 right. Returns new state array, or null if illegal.
+  const next = state.slice();
+  for (let j = 0; j < N; j++) {
+    const eff = matrix[i][j];
+    if (eff === 0) continue;
+    const delta = (eff === 1 ? dir : -dir);
+    let p = next[j] + delta;
+    if (p < 0 || p >= HOLES) {
+      if (clamp) p = Math.max(0, Math.min(HOLES - 1, p));
+      else return null; // move blocked
+    }
+    next[j] = p;
+  }
+  return next;
+}
+
+function solve() {
+  const clamp = $('clamp').checked;
+  const start = positions.slice();
+  const goal = Array(N).fill(CENTER).join(',');
+  const startKey = start.join(',');
+  if (startKey === goal) return { steps: [], states: [start] };
+
+  const seen = new Set([startKey]);
+  // queue holds {state, moves:[{i,dir}], states:[...]}
+  let frontier = [{ state: start, moves: [], states: [start] }];
+  const MAX = 2_000_000;
+  let visited = 0;
+
+  while (frontier.length) {
+    const nextFrontier = [];
+    for (const node of frontier) {
+      for (let i = 0; i < N; i++) {
+        for (const dir of [-1, 1]) {
+          const ns = applyMove(node.state, i, dir, clamp);
+          if (!ns) continue;
+          const key = ns.join(',');
+          if (seen.has(key)) continue;
+          seen.add(key);
+          visited++;
+          const moves = node.moves.concat([{ i, dir }]);
+          const states = node.states.concat([ns]);
+          if (key === goal) return { steps: moves, states };
+          nextFrontier.push({ state: ns, moves, states });
+          if (visited > MAX) return { overflow: true };
+        }
+      }
+    }
+    frontier = nextFrontier;
+  }
+  return null; // unsolvable
+}
+
+/* ---------- Solution rendering ---------- */
+function clearSolution() { $('solution').innerHTML = ''; $('status').textContent = ''; }
+
+function showSolution() {
+  const out = $('solution');
+  const status = $('status');
+  out.innerHTML = '';
+  const t0 = performance.now();
+  const res = solve();
+  const ms = (performance.now() - t0).toFixed(0);
+
+  if (res === null) {
+    status.innerHTML = '<span class="err">No solution exists with this setup. Try the "clamp at edges" option, or re-check the matrix.</span>';
+    return;
+  }
+  if (res.overflow) {
+    status.innerHTML = '<span class="err">Search space too large / no solution found in budget.</span>';
+    return;
+  }
+  if (res.steps.length === 0) {
+    status.innerHTML = '<span class="ok">Already solved — every pin is centered.</span>';
+    return;
+  }
+  lastSteps = res.steps;
+  status.innerHTML = '<span class="ok">Solved in ' + res.steps.length +
+    ' move' + (res.steps.length>1?'s':'') + '</span> <span class="hint">(' + ms + ' ms)</span>';
+
+  res.steps.forEach((mv, k) => {
+    const div = document.createElement('div');
+    div.className = 'step';
+    // The solver reasons about pin-relative movement; you actually slide the
+    // mechanism the OTHER way, so invert the direction for the displayed step.
+    const isR = mv.dir === -1;
+    div.innerHTML =
+      '<div class="num">' + (k+1) + '</div>' +
+      '<div>Move <b style="color:var(--gold)">Mechanism ' + (mv.i+1) + '</b> ' +
+      '<span class="dir ' + (isR?'R':'L') + '">' + (isR?'▶ Right':'◀ Left') + '</span></div>' +
+      '<div class="state">' + res.states[k+1].map(p => p===CENTER ? '['+p+']' : p).join(' ') + '</div>';
+    out.appendChild(div);
+  });
+}
+
+/* ---------- Auto-play key plan ---------- */
+function populateStart() {
+  // Selection always begins on the last mechanism (matches the game).
+  $('kNextMax').textContent = N;
+  $('kStartLabel').textContent = 'the last mechanism (M' + N + ')';
+}
+
+function buildPlan() {
+  const out = $('planOut');
+  if (!lastSteps) { out.innerHTML = '<span class="err">Solve first (section 3).</span>'; return null; }
+  if (lastSteps.length === 0) { out.innerHTML = '<span class="ok">Nothing to do — already solved.</span>'; return ''; }
+
+  const kPrev = $('kPrev').value;   // toward M1 (lower index)
+  const kNext = $('kNext').value;   // toward MN (higher index)
+  const kLeft = $('kLeft').value;
+  const kRight = $('kRight').value;
+  let sel = N - 1; // selection always starts on the last mechanism
+
+  const keys = [];
+  const human = [];
+  for (const mv of lastSteps) {
+    const target = mv.i;
+    while (sel > target) { keys.push(kPrev); human.push(kPrev.toUpperCase() + ' (select M' + sel + ')'); sel--; }
+    while (sel < target) { keys.push(kNext); human.push(kNext.toUpperCase() + ' (select M' + (sel + 2) + ')'); sel++; }
+    const isR = mv.dir === -1; // displayed/real-hand direction (mirrored)
+    const mk = isR ? kRight : kLeft;
+    keys.push(mk);
+    human.push(mk.toUpperCase() + ' (M' + (target + 1) + ' ' + (isR ? 'Right' : 'Left') + ')');
+  }
+
+  const planStr = keys.join(' ');
+  out.innerHTML =
+    '<div class="legend" style="margin-bottom:8px;"><b>' + keys.length + ' key presses:</b></div>' +
+    '<div style="font-family:monospace;background:#16120e;padding:10px 12px;border-radius:6px;' +
+    'word-break:break-all;color:var(--gold);font-size:15px;letter-spacing:2px;">' + planStr.toUpperCase() + '</div>' +
+    '<div class="legend" style="margin-top:8px;">' + human.join(' · ') + '</div>';
+  return planStr;
+}
+
+function copyPlan() {
+  const planStr = buildPlan();
+  if (planStr == null) return;
+  navigator.clipboard.writeText(planStr).then(
+    () => { const s = $('planOut'); s.insertAdjacentHTML('afterbegin',
+      '<div class="ok" style="margin-bottom:8px;">✓ Copied to clipboard — now run autoplay.py</div>'); },
+    () => { alert('Copy failed — select the plan text manually.\n\n' + planStr); }
+  );
+}
+
+/* ---------- Reset everything ---------- */
+function resetAll() {
+  if (!confirm('Reset everything to defaults? This clears your saved setup, matrix and positions.')) return;
+  try { localStorage.removeItem('gothicLock'); } catch (e) {}
+  $('count').value = 4;
+  $('clamp').checked = false;
+  $('kPrev').value = 'w';
+  $('kNext').value = 's';
+  $('kLeft').value = 'a';
+  $('kRight').value = 'd';
+  lastSteps = null;
+  $('planOut').innerHTML = '';
+  init(4);
+  populateStart();
+  save();
+}
+
+/* ---------- Persistence ---------- */
+function save() {
+  try {
+    localStorage.setItem('gothicLock', JSON.stringify({
+      N, positions, matrix, clamp: $('clamp').checked
+    }));
+  } catch (e) {}
+}
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem('gothicLock'));
+    if (!d) return false;
+    N = d.N; positions = d.positions; matrix = d.matrix;
+    $('count').value = N;
+    $('clamp').checked = !!d.clamp;
+    renderMechs(); renderMatrix();
+    return true;
+  } catch (e) { return false; }
+}
+
+/* ---------- Wiring ---------- */
+$('count').onchange = e => { init(parseInt(e.target.value, 10)); populateStart(); save(); };
+$('reset').onclick = () => { positions = Array(N).fill(CENTER); renderMechs(); clearSolution(); save(); };
+$('resetAll').onclick = resetAll;
+$('solve').onclick = showSolution;
+$('clamp').onchange = save;
+$('buildPlan').onclick = buildPlan;
+$('copyPlan').onclick = copyPlan;
+
+if (!load()) init(4);
+populateStart();
+</script>
+</body>
+</html>
