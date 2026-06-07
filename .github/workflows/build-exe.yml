@@ -55,8 +55,20 @@ jobs:
           Write-Host "Compiler: $ahk2exe"
           Write-Host "Base:     $base"
           Write-Host "Output:   $out"
-          & $ahk2exe /in "automation\autoplay.ahk" /out "$out" /base "$base"
-          if (-not (Test-Path $out)) { throw "Compilation produced no exe." }
+          if (Test-Path $out) { Remove-Item $out -Force }
+          # Ahk2Exe is a GUI-subsystem app; '&' returns before it finishes
+          # writing, so wait on the process AND poll for the output file.
+          Start-Process -FilePath $ahk2exe -Wait -NoNewWindow -ArgumentList @(
+            '/in',   'automation\autoplay.ahk',
+            '/out',  $out,
+            '/base', $base
+          )
+          $ok = $false
+          foreach ($i in 1..60) {
+            if (Test-Path $out) { $ok = $true; break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ok) { throw "Compilation produced no exe." }
           Get-Item $out | Select-Object Name, Length
 
       - name: Bundle exe + ini
