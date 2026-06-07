@@ -16,20 +16,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download AutoHotkey v2 (with Ahk2Exe compiler)
+      - name: Download AutoHotkey v2 + Ahk2Exe compiler
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl.exe -L -o ahk.zip https://www.autohotkey.com/download/ahk-v2.zip
+          $ErrorActionPreference = "Stop"
+          $hdr = @{ "User-Agent" = "gh-actions"; "Authorization" = "Bearer $env:GH_TOKEN" }
+
+          # --- AutoHotkey v2 portable zip (provides AutoHotkey64.exe base) ---
+          $rel = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/AutoHotkey/releases/latest" -Headers $hdr
+          $zip = $rel.assets | Where-Object { $_.name -match '^AutoHotkey_2\..*\.zip$' -and $_.name -notmatch 'setup' } | Select-Object -First 1
+          if (-not $zip) { throw "Could not find AutoHotkey v2 zip asset." }
+          Write-Host "AHK zip: $($zip.name)"
+          curl.exe -L -o ahk.zip $zip.browser_download_url
           Expand-Archive -Path ahk.zip -DestinationPath ahk -Force
-          Get-ChildItem -Path ahk -Recurse -Filter "Ahk2Exe.exe" | Select-Object FullName
+
+          # --- Ahk2Exe compiler (separate repo) ---
+          $rel2 = Invoke-RestMethod "https://api.github.com/repos/AutoHotkey/Ahk2Exe/releases/latest" -Headers $hdr
+          $zip2 = $rel2.assets | Where-Object { $_.name -match '\.zip$' } | Select-Object -First 1
+          if (-not $zip2) { throw "Could not find Ahk2Exe zip asset." }
+          Write-Host "Ahk2Exe zip: $($zip2.name)"
+          curl.exe -L -o ahk2exe.zip $zip2.browser_download_url
+          Expand-Archive -Path ahk2exe.zip -DestinationPath ahk2exe -Force
+
+          Get-ChildItem -Recurse -Filter "Ahk2Exe.exe" | Select-Object FullName
           Get-ChildItem -Path ahk -Recurse -Filter "AutoHotkey64.exe" | Select-Object FullName
 
       - name: Compile autoplay.ahk -> gothic-autoplay.exe
         shell: pwsh
         run: |
-          $ahk2exe = (Get-ChildItem -Path ahk -Recurse -Filter "Ahk2Exe.exe" | Select-Object -First 1).FullName
+          $ErrorActionPreference = "Stop"
+          $ahk2exe = (Get-ChildItem -Recurse -Filter "Ahk2Exe.exe" | Select-Object -First 1).FullName
           $base    = (Get-ChildItem -Path ahk -Recurse -Filter "AutoHotkey64.exe" | Select-Object -First 1).FullName
-          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found in AutoHotkey download." }
+          if (-not $ahk2exe) { throw "Ahk2Exe.exe not found." }
           if (-not $base)    { throw "AutoHotkey64.exe base not found." }
           Write-Host "Compiler: $ahk2exe"
           Write-Host "Base:     $base"
