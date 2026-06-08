@@ -44,11 +44,14 @@
   }
   button { cursor: pointer; transition: .12s; }
   button:hover { border-color: var(--gold); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
   button.primary {
     background: var(--gold-dim); color: #1a1714; font-weight: 600;
     border-color: var(--gold); padding: 9px 22px; font-size: 15px;
   }
   button.primary:hover { background: var(--gold); }
+  button.danger { border-color: var(--red); color: var(--red); }
+  button.danger:hover { background: var(--red); color: #1a1714; }
 
   /* Mechanisms */
   .mechs { display: flex; flex-direction: column; gap: 14px; }
@@ -68,7 +71,6 @@
     background: var(--blue); box-shadow: 0 0 6px rgba(74,143,214,.6);
   }
   .hole.solved .pin { background: var(--green); box-shadow: 0 0 8px rgba(95,184,74,.7); }
-  .mech-auto { font-size: 11px; color: var(--muted); width: 60px; }
 
   /* Matrix */
   table { border-collapse: collapse; margin-top: 8px; }
@@ -81,9 +83,15 @@
     display: flex; align-items: center; justify-content: center; user-select: none;
   }
   .cell.none { background: #221d17; color: var(--muted); }
+  .cell.none.ph { color: var(--muted); opacity: .45; font-weight: 500; }
   .cell.same { background: rgba(74,143,214,.18); color: var(--blue); border-color: var(--blue); }
   .cell.opp  { background: rgba(214,129,74,.18); color: var(--orange); border-color: var(--orange); }
-  .cell.diag { outline: 1px dashed var(--gold-dim); outline-offset: -3px; }
+  .cell.diag {
+    cursor: default; color: transparent; background: #1d1813;
+    background-image: linear-gradient(to top right,
+      transparent calc(50% - 1px), var(--gold-dim) calc(50% - 1px),
+      var(--gold-dim) calc(50% + 1px), transparent calc(50% + 1px));
+  }
 
   /* Solution */
   #solution { margin-top: 4px; }
@@ -107,6 +115,35 @@
   .legend b { color: var(--text); }
   .hint { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
   code { background: #16120e; padding: 1px 5px; border-radius: 3px; color: var(--gold); }
+
+  /* History */
+  .hist { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .histcard {
+    position: relative; flex: 0 0 auto; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 8px 6px;
+    cursor: pointer; transition: .12s;
+  }
+  .histcard:hover { border-color: var(--gold); }
+  .histgrid { display: flex; flex-direction: column; gap: 3px; }
+  .histrow { display: flex; gap: 3px; }
+  .histdot { width: 7px; height: 7px; border-radius: 50%; background: #16120e; border: 1px solid var(--line); }
+  .histdot.center { border-color: var(--gold-dim); }
+  .histdot.pin { background: var(--blue); border-color: var(--blue); }
+  .histdot.pin.center { background: var(--green); border-color: var(--green); }
+  .histcap { font-size: 10px; color: var(--muted); text-align: center; margin-top: 5px; }
+  .histdel {
+    position: absolute; top: 1px; right: 4px; color: var(--muted);
+    font-size: 13px; line-height: 1; padding: 1px 3px; border-radius: 3px;
+  }
+  .histdel:hover { color: var(--red); background: rgba(0,0,0,.3); }
+
+  /* Ko-fi */
+  .kofi {
+    display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+    background: #ff5e5b; color: #fff; font-weight: 700; font-size: 15px;
+    padding: 10px 20px; border-radius: 8px; border: none;
+  }
+  .kofi:hover { background: #ff423f; }
 </style>
 </head>
 <body>
@@ -119,14 +156,19 @@
       <label>Mechanisms:
         <select id="count">
           <option>1</option><option>2</option><option>3</option>
-          <option selected>4</option><option>5</option><option>6</option><option>7</option>
+          <option>4</option><option>5</option><option selected>6</option><option>7</option>
         </select>
       </label>
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="clamp"> Pins clamp at the edges (instead of the move being blocked)
-      </label>
-      <button id="reset">Reset positions to center</button>
-      <button id="resetAll">Reset everything</button>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="panel" id="histPanel" style="display:none;">
+    <h2>📜 Saved locks</h2>
+    <p class="hint">Every solved lock is saved here. Click one to reload its positions, matrix and solution.</p>
+    <div class="hist" id="hist"></div>
+    <div class="row" style="margin-top:10px;">
+      <button id="clearHist">Clear history</button>
     </div>
   </div>
 
@@ -138,7 +180,7 @@
 
   <div class="panel">
     <h2>2 · Interaction matrix</h2>
-    <p class="hint">Read each row as: <i>"When I move <b>this</b> mechanism, the column mechanism reacts by…"</i> Click a cell to cycle <span style="color:var(--muted)">None</span> → <span style="color:var(--blue)">Same</span> → <span style="color:var(--orange)">Opposite</span>. The dashed diagonal is how a mechanism moves itself (normally <span style="color:var(--blue)">Same</span>).</p>
+    <p class="hint">Read each row as: <i>"When I move <b>this</b> mechanism, the column mechanism reacts by…"</i> Click a cell to cycle <span style="color:var(--muted)">None</span> → <span style="color:var(--blue)">Same</span> → <span style="color:var(--orange)">Opposite</span>. The crossed-out diagonal is a mechanism on itself — fixed, since moving it always moves itself.</p>
     <div id="matrix"></div>
     <p class="legend">
       <b style="color:var(--blue)">Same direction</b> = it moves the way you pushed. &nbsp;
@@ -182,37 +224,50 @@
 
     <!-- Desktop-app-only controls (shown when running inside the Tauri app) -->
     <div id="appExec" style="display:none; margin-top:16px; border-top:1px solid var(--line); padding-top:16px;">
-      <p class="hint">Desktop app detected — press <b>Execute</b> to focus the game and play the moves automatically.</p>
+      <p class="hint">Desktop app detected — <b>Execute</b> focuses the game, presses the reset key, waits, then plays the moves. Press <b>Stop</b> or <b>Esc</b> to abort.</p>
       <div class="row" style="margin-bottom:12px;">
         <label>Game window title
-          <input id="gameTitle" type="text" value="Gothic 1 Remake" style="width:170px;">
+          <input id="gameTitle" type="text" value="Gothic 1 Remake" style="width:160px;">
+        </label>
+        <label>Reset key
+          <input id="exReset" type="text" value="R" maxlength="5" style="width:52px;">
+        </label>
+        <label>Reset wait (s)
+          <input id="exResetDelay" type="number" min="0" max="10" step="0.1" value="1" style="width:64px;">
         </label>
         <label>Countdown (s)
-          <input id="exCountdown" type="number" min="0" max="30" value="5" style="width:64px;">
+          <input id="exCountdown" type="number" min="0" max="30" value="5" style="width:60px;">
         </label>
         <label>Delay between keys (ms)
           <input id="exDelay" type="number" min="0" max="2000" value="180" style="width:74px;">
         </label>
         <label>Key hold (ms)
-          <input id="exHold" type="number" min="0" max="500" value="40" style="width:64px;">
+          <input id="exHold" type="number" min="0" max="500" value="40" style="width:60px;">
         </label>
       </div>
       <div class="row">
         <button id="execBtn" class="primary">▶ Execute in game</button>
+        <button id="stopBtn" class="danger">■ Stop (Esc)</button>
         <span id="execStatus" class="hint" style="margin:0;"></span>
       </div>
     </div>
+  </div>
+
+  <div class="panel" style="text-align:center;">
+    <p class="hint" style="margin-bottom:12px;">Found this useful? Support the project ☕</p>
+    <a class="kofi" id="kofiLink" href="https://ko-fi.com/tiarinhino" target="_blank" rel="noopener">☕ Support me on Ko-fi</a>
   </div>
 </div>
 
 <script>
 const HOLES = 7;
 const CENTER = 3;
+const DEFAULT_N = 6;
 const $ = id => document.getElementById(id);
 
-let N = 4;
+let N = DEFAULT_N;
 let positions = [];   // current/initial pin index per mechanism
-let matrix = [];      // matrix[i][j] in {0:none, 1:same, 2:opp}
+let matrix = [];      // matrix[i][j] in {0:none, 1:same, 2:opp}; diagonal fixed at 1
 let lastSteps = null; // most recent solution's steps
 
 function init(n) {
@@ -262,7 +317,6 @@ const TXT = ['—','Same','Opp'];
 function renderMatrix() {
   const c = $('matrix');
   const t = document.createElement('table');
-  // header
   const head = document.createElement('tr');
   head.appendChild(el('th',''));
   for (let j = 0; j < N; j++) head.appendChild(el('th','M' + (j+1)));
@@ -273,13 +327,19 @@ function renderMatrix() {
     for (let j = 0; j < N; j++) {
       const td = document.createElement('td');
       const cell = document.createElement('div');
-      const v = matrix[i][j];
-      cell.className = 'cell ' + CLS[v] + (i === j ? ' diag' : '');
-      cell.textContent = TXT[v];
-      cell.onclick = () => {
-        matrix[i][j] = (matrix[i][j] + 1) % 3;
-        renderMatrix(); save();
-      };
+      if (i === j) {
+        // Self cell: fixed (still moves itself), shown as a crossed diagonal.
+        cell.className = 'cell diag';
+        cell.title = 'A mechanism always moves itself';
+      } else {
+        const v = matrix[i][j];
+        cell.className = 'cell ' + CLS[v] + (v === 0 ? ' ph' : '');
+        cell.textContent = v === 0 ? ('M' + (j+1)) : TXT[v];
+        cell.onclick = () => {
+          matrix[i][j] = (matrix[i][j] + 1) % 3;
+          renderMatrix(); save();
+        };
+      }
       td.appendChild(cell);
       tr.appendChild(td);
     }
@@ -296,32 +356,28 @@ function el(tag, text, cls) {
 }
 
 /* ---------- Solver (BFS shortest path) ---------- */
-function applyMove(state, i, dir, clamp) {
-  // dir: -1 left, +1 right. Returns new state array, or null if illegal.
+function applyMove(state, i, dir) {
+  // dir: -1 left, +1 right. Returns new state array, or null if a move
+  // would push any pin out of range (move blocked).
   const next = state.slice();
   for (let j = 0; j < N; j++) {
     const eff = matrix[i][j];
     if (eff === 0) continue;
     const delta = (eff === 1 ? dir : -dir);
-    let p = next[j] + delta;
-    if (p < 0 || p >= HOLES) {
-      if (clamp) p = Math.max(0, Math.min(HOLES - 1, p));
-      else return null; // move blocked
-    }
+    const p = next[j] + delta;
+    if (p < 0 || p >= HOLES) return null;
     next[j] = p;
   }
   return next;
 }
 
 function solve() {
-  const clamp = $('clamp').checked;
   const start = positions.slice();
   const goal = Array(N).fill(CENTER).join(',');
   const startKey = start.join(',');
   if (startKey === goal) return { steps: [], states: [start] };
 
   const seen = new Set([startKey]);
-  // queue holds {state, moves:[{i,dir}], states:[...]}
   let frontier = [{ state: start, moves: [], states: [start] }];
   const MAX = 2_000_000;
   let visited = 0;
@@ -331,7 +387,7 @@ function solve() {
     for (const node of frontier) {
       for (let i = 0; i < N; i++) {
         for (const dir of [-1, 1]) {
-          const ns = applyMove(node.state, i, dir, clamp);
+          const ns = applyMove(node.state, i, dir);
           if (!ns) continue;
           const key = ns.join(',');
           if (seen.has(key)) continue;
@@ -350,34 +406,34 @@ function solve() {
   return null; // unsolvable
 }
 
+// Replays steps from a start state to recover the per-step states.
+function statesFromSteps(start, steps) {
+  let s = start.slice();
+  const states = [s.slice()];
+  for (const mv of steps) {
+    const ns = applyMove(s, mv.i, mv.dir);
+    if (!ns) break;
+    s = ns;
+    states.push(s.slice());
+  }
+  return states;
+}
+
 /* ---------- Solution rendering ---------- */
 function clearSolution() { $('solution').innerHTML = ''; $('status').textContent = ''; }
 
-function showSolution() {
+function renderSteps(steps, states, statusHtml) {
   const out = $('solution');
   const status = $('status');
   out.innerHTML = '';
-  const t0 = performance.now();
-  const res = solve();
-  const ms = (performance.now() - t0).toFixed(0);
-
-  if (res === null) {
-    status.innerHTML = '<span class="err">No solution exists with this setup. Try the "clamp at edges" option, or re-check the matrix.</span>';
-    return;
-  }
-  if (res.overflow) {
-    status.innerHTML = '<span class="err">Search space too large / no solution found in budget.</span>';
-    return;
-  }
-  if (res.steps.length === 0) {
+  lastSteps = steps;
+  $('planOut').innerHTML = '';
+  if (steps.length === 0) {
     status.innerHTML = '<span class="ok">Already solved — every pin is centered.</span>';
     return;
   }
-  lastSteps = res.steps;
-  status.innerHTML = '<span class="ok">Solved in ' + res.steps.length +
-    ' move' + (res.steps.length>1?'s':'') + '</span> <span class="hint">(' + ms + ' ms)</span>';
-
-  res.steps.forEach((mv, k) => {
+  status.innerHTML = statusHtml;
+  steps.forEach((mv, k) => {
     const div = document.createElement('div');
     div.className = 'step';
     // The solver reasons about pin-relative movement; you actually slide the
@@ -387,19 +443,136 @@ function showSolution() {
       '<div class="num">' + (k+1) + '</div>' +
       '<div>Move <b style="color:var(--gold)">Mechanism ' + (mv.i+1) + '</b> ' +
       '<span class="dir ' + (isR?'R':'L') + '">' + (isR?'▶ Right':'◀ Left') + '</span></div>' +
-      '<div class="state">' + res.states[k+1].map(p => p===CENTER ? '['+p+']' : p).join(' ') + '</div>';
+      '<div class="state">' + (states[k+1]||[]).map(p => p===CENTER ? '['+p+']' : p).join(' ') + '</div>';
     out.appendChild(div);
   });
 }
 
+function showSolution() {
+  const status = $('status');
+  $('solution').innerHTML = '';
+  const t0 = performance.now();
+  const res = solve();
+  const ms = (performance.now() - t0).toFixed(0);
+
+  if (res === null) {
+    lastSteps = null;
+    status.innerHTML = '<span class="err">No solution exists with this setup — re-check the matrix or starting positions.</span>';
+    return;
+  }
+  if (res.overflow) {
+    lastSteps = null;
+    status.innerHTML = '<span class="err">Search space too large / no solution found in budget.</span>';
+    return;
+  }
+  const msg = res.steps.length === 0
+    ? ''
+    : '<span class="ok">Solved in ' + res.steps.length + ' move' + (res.steps.length>1?'s':'') +
+      '</span> <span class="hint">(' + ms + ' ms)</span>';
+  renderSteps(res.steps, res.states, msg);
+  addHistory(res.steps);
+}
+
+/* ---------- History ---------- */
+const HIST_KEY = 'gothicHistory';
+const HIST_MAX = 24;
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch (e) { return []; }
+}
+function setHistory(h) {
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(h)); } catch (e) {}
+}
+function entryKey(e) { return e.n + '|' + e.positions.join(',') + '|' + e.matrix.map(r=>r.join('')).join('/'); }
+
+function addHistory(steps) {
+  const entry = {
+    n: N,
+    positions: positions.slice(),
+    matrix: matrix.map(r => r.slice()),
+    steps: steps.map(s => ({ i: s.i, dir: s.dir }))
+  };
+  const k = entryKey(entry);
+  let h = getHistory().filter(e => entryKey(e) !== k); // de-dupe, move to front
+  h.unshift(entry);
+  if (h.length > HIST_MAX) h = h.slice(0, HIST_MAX);
+  setHistory(h);
+  renderHistory();
+}
+
+function renderHistory() {
+  const h = getHistory();
+  const panel = $('histPanel');
+  const strip = $('hist');
+  if (h.length === 0) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  strip.innerHTML = '';
+  h.forEach((e, idx) => {
+    const card = document.createElement('div');
+    card.className = 'histcard';
+    card.title = 'Load this lock';
+
+    const grid = document.createElement('div');
+    grid.className = 'histgrid';
+    for (let i = 0; i < e.n; i++) {
+      const r = document.createElement('div');
+      r.className = 'histrow';
+      for (let p = 0; p < HOLES; p++) {
+        const dot = document.createElement('div');
+        let cls = 'histdot';
+        if (p === CENTER) cls += ' center';
+        if (e.positions[i] === p) cls += ' pin';
+        dot.className = cls;
+        r.appendChild(dot);
+      }
+      grid.appendChild(r);
+    }
+    card.appendChild(grid);
+
+    const cap = document.createElement('div');
+    cap.className = 'histcap';
+    cap.textContent = e.n + 'm · ' + (e.steps.length === 0 ? 'solved' : e.steps.length + ' mv');
+    card.appendChild(cap);
+
+    const del = document.createElement('div');
+    del.className = 'histdel';
+    del.textContent = '×';
+    del.title = 'Remove';
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      const cur = getHistory();
+      cur.splice(idx, 1);
+      setHistory(cur);
+      renderHistory();
+    };
+    card.appendChild(del);
+
+    card.onclick = () => loadHistoryEntry(e);
+    strip.appendChild(card);
+  });
+}
+
+function loadHistoryEntry(e) {
+  N = e.n;
+  positions = e.positions.slice();
+  matrix = e.matrix.map(r => r.slice());
+  for (let i = 0; i < N; i++) matrix[i][i] = 1; // enforce fixed diagonal
+  $('count').value = N;
+  renderMechs();
+  renderMatrix();
+  populateStart();
+  const states = statesFromSteps(positions, e.steps);
+  renderSteps(e.steps, states, '<span class="ok">Loaded from history</span>');
+  save();
+}
+
 /* ---------- Auto-play key plan ---------- */
 function populateStart() {
-  // Selection always begins on the last mechanism (matches the game).
   $('kNextMax').textContent = N;
   $('kStartLabel').textContent = 'the last mechanism (M' + N + ')';
 }
 
-// Returns { keys:[...], human:[...] }, or null (not solved), or {keys:[]} (already solved).
+// Returns { keys:[...], human:[...] }, or null (not solved).
 function computePlan() {
   if (!lastSteps) return null;
   const kPrev = $('kPrev').value;   // toward M1 (lower index)
@@ -440,26 +613,24 @@ function copyPlan() {
   const planStr = buildPlan();
   if (planStr == null) return;
   navigator.clipboard.writeText(planStr).then(
-    () => { const s = $('planOut'); s.insertAdjacentHTML('afterbegin',
+    () => { $('planOut').insertAdjacentHTML('afterbegin',
       '<div class="ok" style="margin-bottom:8px;">✓ Copied to clipboard — now run the autoplayer</div>'); },
     () => { alert('Copy failed — select the plan text manually.\n\n' + planStr); }
   );
 }
 
-/* ---------- Desktop app: Execute directly ---------- */
+/* ---------- Desktop app: Execute / Stop ---------- */
 const TAURI = (typeof window !== 'undefined') && window.__TAURI__;
 
 function setExecStatus(msg, kind) {
   const el = $('execStatus');
-  el.className = 'hint';
+  el.className = kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'hint';
   el.style.margin = '0';
-  if (kind === 'ok') el.className = 'ok';
-  if (kind === 'err') el.className = 'err';
   el.textContent = msg;
 }
 
 async function executePlan() {
-  buildPlan(); // also renders the plan text
+  buildPlan();
   const plan = computePlan();
   if (plan == null) { setExecStatus('Solve first (section 3).', 'err'); return; }
   if (plan.keys.length === 0) { setExecStatus('Already solved — nothing to play.', 'ok'); return; }
@@ -467,6 +638,8 @@ async function executePlan() {
   const opts = {
     keys: plan.keys,
     gameTitle: ($('gameTitle').value || 'Gothic 1 Remake').trim(),
+    resetKey: ($('exReset').value || 'r').trim().toLowerCase(),
+    resetDelayMs: Math.max(0, Math.round((parseFloat($('exResetDelay').value) || 0) * 1000)),
     countdown: Math.max(0, parseInt($('exCountdown').value, 10) || 0),
     delayMs: Math.max(0, parseInt($('exDelay').value, 10) || 0),
     holdMs: Math.max(0, parseInt($('exHold').value, 10) || 0)
@@ -482,14 +655,27 @@ async function executePlan() {
   }
 }
 
+function stopPlan() {
+  if (TAURI) TAURI.core.invoke('stop_plan');
+}
+
 function initTauri() {
   if (!TAURI) return;
   $('appExec').style.display = 'block';
   $('execBtn').onclick = executePlan;
+  $('stopBtn').onclick = stopPlan;
+
+  // Open the Ko-fi link in the system browser instead of the app webview.
+  const kofi = $('kofiLink');
+  if (kofi) kofi.onclick = (e) => { e.preventDefault(); TAURI.core.invoke('open_url', { url: kofi.href }); };
+
   TAURI.event.listen('autoplay', (ev) => {
     const p = ev.payload || {};
     if (p.phase === 'done') {
       setExecStatus('✓ ' + p.message, 'ok');
+      $('execBtn').disabled = false;
+    } else if (p.phase === 'stopped') {
+      setExecStatus('■ ' + (p.message || 'Stopped.'), 'err');
       $('execBtn').disabled = false;
     } else if (p.phase === 'error') {
       setExecStatus('Error: ' + p.message, 'err');
@@ -500,19 +686,17 @@ function initTauri() {
   });
 }
 
-/* ---------- Reset everything ---------- */
+/* ---------- Reset ---------- */
 function resetAll() {
-  if (!confirm('Reset everything to defaults? This clears your saved setup, matrix and positions.')) return;
   try { localStorage.removeItem('gothicLock'); } catch (e) {}
-  $('count').value = 4;
-  $('clamp').checked = false;
+  $('count').value = DEFAULT_N;
   $('kPrev').value = 'w';
   $('kNext').value = 's';
   $('kLeft').value = 'a';
   $('kRight').value = 'd';
   lastSteps = null;
   $('planOut').innerHTML = '';
-  init(4);
+  init(DEFAULT_N);
   populateStart();
   save();
 }
@@ -520,9 +704,7 @@ function resetAll() {
 /* ---------- Persistence ---------- */
 function save() {
   try {
-    localStorage.setItem('gothicLock', JSON.stringify({
-      N, positions, matrix, clamp: $('clamp').checked
-    }));
+    localStorage.setItem('gothicLock', JSON.stringify({ N, positions, matrix }));
   } catch (e) {}
 }
 function load() {
@@ -530,8 +712,8 @@ function load() {
     const d = JSON.parse(localStorage.getItem('gothicLock'));
     if (!d) return false;
     N = d.N; positions = d.positions; matrix = d.matrix;
+    for (let i = 0; i < N; i++) matrix[i][i] = 1; // enforce fixed diagonal
     $('count').value = N;
-    $('clamp').checked = !!d.clamp;
     renderMechs(); renderMatrix();
     return true;
   } catch (e) { return false; }
@@ -539,15 +721,15 @@ function load() {
 
 /* ---------- Wiring ---------- */
 $('count').onchange = e => { init(parseInt(e.target.value, 10)); populateStart(); save(); };
-$('reset').onclick = () => { positions = Array(N).fill(CENTER); renderMechs(); clearSolution(); save(); };
-$('resetAll').onclick = resetAll;
+$('reset').onclick = resetAll;
 $('solve').onclick = showSolution;
-$('clamp').onchange = save;
 $('buildPlan').onclick = buildPlan;
 $('copyPlan').onclick = copyPlan;
+$('clearHist').onclick = () => { setHistory([]); renderHistory(); };
 
-if (!load()) init(4);
+if (!load()) init(DEFAULT_N);
 populateStart();
+renderHistory();
 initTauri();
 </script>
 </body>
