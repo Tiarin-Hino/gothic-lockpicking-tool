@@ -138,12 +138,17 @@
   .histdel:hover { color: var(--red); background: rgba(0,0,0,.3); }
 
   /* Ko-fi */
-  .kofi {
+  .links { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; text-align: center; }
+  .linkcol { flex: 1 1 240px; max-width: 340px; }
+  .linkcol .hint { font-size: 12px; }
+  .kofi, .ghbtn {
     display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
-    background: #ff5e5b; color: #fff; font-weight: 700; font-size: 15px;
-    padding: 10px 20px; border-radius: 8px; border: none;
+    font-weight: 700; font-size: 15px; padding: 10px 20px; border-radius: 8px; border: none;
   }
+  .kofi { background: #ff5e5b; color: #fff; }
   .kofi:hover { background: #ff423f; }
+  .ghbtn { background: #2b2118; color: var(--gold); border: 1px solid var(--gold-dim); font-family: monospace; }
+  .ghbtn:hover { background: #34281d; border-color: var(--gold); }
 </style>
 </head>
 <body>
@@ -253,9 +258,17 @@
     </div>
   </div>
 
-  <div class="panel" style="text-align:center;">
-    <p class="hint" style="margin-bottom:12px;">Found this useful? Support the project ☕</p>
-    <a class="kofi" id="kofiLink" href="https://ko-fi.com/tiarinhino" target="_blank" rel="noopener">☕ Support me on Ko-fi</a>
+  <div class="panel">
+    <div class="links">
+      <div class="linkcol">
+        <a class="kofi" id="kofiLink" href="https://ko-fi.com/tiarinhino" target="_blank" rel="noopener">☕ Support me on Ko-fi</a>
+        <p class="hint" style="margin:8px 0 0;">Enjoying the tool? Buy me a coffee.</p>
+      </div>
+      <div class="linkcol">
+        <a class="ghbtn" id="ghLink" href="https://github.com/Tiarin-Hino/gothic-lockpicking-tool" target="_blank" rel="noopener">&lt;/&gt; View on GitHub</a>
+        <p class="hint" style="margin:8px 0 0;">Source code for running locally, plus the auto-play files (desktop app &amp; Python).</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -665,9 +678,11 @@ function initTauri() {
   $('execBtn').onclick = executePlan;
   $('stopBtn').onclick = stopPlan;
 
-  // Open the Ko-fi link in the system browser instead of the app webview.
-  const kofi = $('kofiLink');
-  if (kofi) kofi.onclick = (e) => { e.preventDefault(); TAURI.core.invoke('open_url', { url: kofi.href }); };
+  // Open external links in the system browser instead of the app webview.
+  ['kofiLink', 'ghLink'].forEach(id => {
+    const a = $(id);
+    if (a) a.onclick = (e) => { e.preventDefault(); TAURI.core.invoke('open_url', { url: a.href }); };
+  });
 
   TAURI.event.listen('autoplay', (ev) => {
     const p = ev.payload || {};

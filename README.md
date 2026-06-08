@@ -46,21 +46,33 @@ A single portable `.exe` — the full solver UI plus a one-click auto-player.
 > full source is in this repo and the exe is built automatically by GitHub
 > Actions — nothing hidden.
 
-## Linux / macOS / advanced users (Python)
+## Python auto-player (advanced users)
 
-On non-Windows systems, use the **web tool** for the solution and either follow
-the move list in-game or use the cross-platform Python auto-player in the
-`automation/` folder (standard library only, no `pip install`):
+A script alternative to the desktop app, in the `automation/` folder (standard
+library only, no `pip install`). Input is sent via Windows `SendInput`, so the
+**automation runs on Windows**. On macOS/Linux, use the **web tool** for the
+solution and follow the move list in-game.
 
 ```bash
 # 1. Copy the key plan from the web tool, then:
 python automation/autoplay.py        # optional countdown override: autoplay.py 8
 ```
 
-It reads the plan from your clipboard, counts down, and sends the keys.
-On macOS you'll need to grant the terminal **Accessibility** permission;
-on Linux it targets X11 (Wayland input injection varies).
-Windows users can also double-click `automation/autoplay.bat`.
+It reads the plan from your clipboard, focuses the game (Windows), presses the
+reset key, waits, counts down, then plays the moves — the same flow as the
+desktop app. Timings and keys are constants at the top of the script:
+
+```python
+GAME_TITLE     = "Gothic 1 Remake"
+RESET_KEY      = "r"
+RESET_DELAY    = 1.0   # seconds after reset before playing
+COUNTDOWN_SEC  = 5
+DELAY_BETWEEN  = 0.18
+HOLD_TIME      = 0.04
+```
+
+Press **Esc** to abort mid-run. You can also double-click
+`automation/autoplay.bat`.
 
 ---
 
@@ -69,7 +81,7 @@ Windows users can also double-click `automation/autoplay.bat`.
 ```
 web/index.html                  the solver UI (static; also the app frontend)
 src-tauri/                       Tauri desktop app (Rust backend: keys + focus)
-automation/autoplay.py / .bat    cross-platform Python auto-player option
+automation/autoplay.py / .bat    Python auto-player option (Windows)
 automation/autoplay.ahk / .ini   legacy AutoHotkey script (kept for reference)
 .github/workflows/build-app.yml  builds the portable .exe on a release
 ```
@@ -82,22 +94,6 @@ runner and attaches `gothic-lockpicking-tool.exe` to a GitHub Release. To build
 locally, install [Rust](https://rustup.rs/) and the
 [Tauri prerequisites](https://tauri.app/start/prerequisites/), then run
 `cargo build --release` in `src-tauri/` (or `cargo tauri dev` to run it live).
-
-## Deploying the web tool (maintainer notes — AWS)
-
-The web tool is a single static file. To host it at
-`gothic-lockpicking-tool.tiarinhino.com`:
-
-1. **S3** — create a bucket, upload `web/index.html` (set as index document):
-   ```bash
-   aws s3 sync web/ s3://YOUR-BUCKET/ --delete
-   ```
-2. **ACM** — request a certificate for the subdomain in **us-east-1**
-   (required for CloudFront).
-3. **CloudFront** — create a distribution with the S3 bucket as origin, attach
-   the ACM cert, and set the alternate domain name to the subdomain.
-4. **DNS** — add a CNAME (or Route 53 alias) from
-   `gothic-lockpicking-tool` → the CloudFront distribution domain.
 
 ## License
 
