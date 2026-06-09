@@ -281,6 +281,9 @@
       <label>Settle (ms)
         <input id="dcSettle" type="number" min="0" max="3000" value="350" style="width:64px;">
       </label>
+      <label>Chest ID
+        <input id="dcChest" type="text" value="01" style="width:70px;">
+      </label>
       <label>Name prefix
         <input id="dcPrefix" type="text" value="lock" style="width:90px;">
       </label>
@@ -774,6 +777,8 @@ async function collectData() {
   const resetKey = ($('exReset').value || 'r').trim().toLowerCase();
   const resetWaitMs = Math.max(0, Math.round((parseFloat($('exResetDelay').value) || 1) * 1000));
   const prefix = $('dcPrefix').value.trim() || 'lock';
+  const chest = ($('dcChest').value.trim() || '00').replace(/[^A-Za-z0-9_-]/g, '');
+  const runTag = Date.now().toString(36); // unique per run → restarts never overwrite
   const baseline = positions.slice(); // current "Starting positions" = the reset state
 
   dcCursor = 0;
@@ -796,9 +801,10 @@ async function collectData() {
       const keys = movesToKeys(moves);
       if (keys.length) await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
       await sleep(settle);
-      // Capture + label.
-      const name = prefix + '_n' + N + '_' + String(s).padStart(5, '0');
-      const label = JSON.stringify({ n: N, positions: state, reset: baseline });
+      // Capture + label. Filename includes chest + a per-run tag so restarts
+      // never overwrite earlier samples (even into the same folder).
+      const name = prefix + '_c' + chest + '_n' + N + '_' + runTag + '_' + String(s).padStart(5, '0');
+      const label = JSON.stringify({ n: N, positions: state, reset: baseline, chest: chest });
       await TAURI.core.invoke('save_sample', { title, dir, name, labelJson: label });
       setDc('Captured ' + (s + 1) + '/' + count);
     }

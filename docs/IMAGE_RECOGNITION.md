@@ -58,6 +58,7 @@ Each sample is a PNG plus a sidecar JSON:
   "n": 6,
   "positions": [3, 1, 4, 3, 0, 5],
   "reset":     [3, 3, 3, 3, 3, 3],
+  "chest": "03",
   "width": 1920,
   "height": 1080
 }
@@ -66,7 +67,17 @@ Each sample is a PNG plus a sidecar JSON:
 - `positions[i]` ∈ `[0,6]` — the hole aligned with the keyway for mechanism `i`
   (index 3 = centered/solved).
 - `reset` — the baseline positions for that lock (provenance/debugging).
+- `chest` — background/chest identifier (for variety tracking + stratified splits).
 - `width`/`height` — captured window size (resolution bucket).
+
+Filenames are `<prefix>_c<chest>_n<N>_<runTag>_<index>.png`, where `runTag` is a
+per-run timestamp so re-running into the same folder never overwrites samples.
+
+Suggested folder layout (combined later by recursive glob):
+```
+dataset/
+  chest03_1920x1080/   chest03_2560x1440/   chest07_1600x900/   …
+```
 
 ### Collection plan for a good dataset
 - **Multiple locks**: vary N (e.g. 3–7) and chest/background. The fixed
