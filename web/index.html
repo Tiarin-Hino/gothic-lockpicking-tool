@@ -261,7 +261,7 @@
   <!-- Data collection (desktop app only; for building the training dataset) -->
   <div class="panel" id="dataGen" style="display:none;">
     <h2>🧪 Data collection (dev)</h2>
-    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Then this drives the lock to random states from reset and saves a labeled screenshot of each. Reuses the game title / reset key / hold from section 4.</p>
+    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives a random reachable state → captures a labeled screenshot. Reuses the game title / reset key / hold from section 4.</p>
     <div class="row" style="margin-bottom:12px;">
       <label>Output folder
         <input id="dcDir" type="text" placeholder="C:\\lockdata\\lockA" style="width:240px;">
@@ -749,6 +749,16 @@ function movesToKeys(moves) {
   return keys;
 }
 
+// Force the selection to a known mechanism (M1) by over-pressing the
+// "toward M1" key so it clamps at the end — robust to whatever the in-game
+// reset does to the cursor. Sets dcCursor = 0 to match.
+async function clampCursorToM1(hold, delay) {
+  const k = $('kPrev').value;
+  const keys = new Array(N + 2).fill(k);
+  await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
+  dcCursor = 0;
+}
+
 async function collectData() {
   if (!TAURI) return;
   dcAbort = false;
@@ -766,7 +776,7 @@ async function collectData() {
   const prefix = $('dcPrefix').value.trim() || 'lock';
   const baseline = positions.slice(); // current "Starting positions" = the reset state
 
-  dcCursor = N - 1;
+  dcCursor = 0;
   $('dcStart').disabled = true;
   try {
     const ok = await TAURI.core.invoke('focus_window', { title });
@@ -775,10 +785,13 @@ async function collectData() {
 
     for (let s = 0; s < count; s++) {
       if (dcAbort) { setDc('Stopped at ' + s + '/' + count, 'err'); break; }
-      // Reset to known baseline.
+      // 1) Reset the plates to the baseline (reset state).
       await TAURI.core.invoke('send_keys', { keys: [resetKey], holdMs: hold, delayMs: delay });
       await sleep(resetWaitMs);
-      // Random target from baseline.
+      // 2) Re-align the selection cursor to a known mechanism (M1). The in-game
+      //    reset may move the cursor, so we clamp it deterministically here.
+      await clampCursorToM1(hold, delay);
+      // 3) Drive a random reachable state from the baseline and label with it.
       const { state, moves } = randomState(baseline, minLen, maxLen);
       const keys = movesToKeys(moves);
       if (keys.length) await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
