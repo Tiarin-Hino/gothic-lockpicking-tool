@@ -49,6 +49,88 @@ fn stop_plan(state: State<AppState>) {
     state.abort.store(true, Ordering::SeqCst);
 }
 
+// ---------------------------------------------------------------------------
+// Data-collection commands (feature/image-recognition).
+// Used by the in-app "Data collection (dev)" panel to build a labeled dataset
+// of game screenshots for training the lock-state recognizer.
+// ---------------------------------------------------------------------------
+
+/// Brings a window whose title contains `title` to the foreground.
+#[tauri::command]
+fn focus_window(title: String) -> Result<bool, String> {
+    #[cfg(not(windows))]
+    {
+        let _ = title;
+        Err("Window focus is Windows-only".into())
+    }
+    #[cfg(windows)]
+    {
+        Ok(winimpl::focus_game(&title))
+    }
+}
+
+/// Sends a list of key tokens immediately (no countdown / focus). For data-gen.
+#[tauri::command]
+fn send_keys(keys: Vec<String>, hold_ms: u64, delay_ms: u64) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let _ = (keys, hold_ms, delay_ms);
+        Err("Key sending is Windows-only".into())
+    }
+    #[cfg(windows)]
+    {
+        for k in &keys {
+            if winimpl::scancode(k).is_none() {
+                return Err(format!("Unknown key: '{}'", k));
+            }
+        }
+        for k in &keys {
+            winimpl::press(k, hold_ms);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
+        Ok(())
+    }
+}
+
+/// Captures the window whose title contains `title`, saves `<dir>/<name>.png`,
+/// and writes `<dir>/<name>.json` with the given label plus image dimensions.
+#[tauri::command]
+fn save_sample(title: String, dir: String, name: String, label_json: String) -> Result<(), String> {
+    use std::path::Path;
+
+    let needle = title.to_lowercase();
+    let windows = xcap::Window::all().map_err(|e| e.to_string())?;
+    let win = windows
+        .into_iter()
+        .find(|w| w.title().to_lowercase().contains(&needle))
+        .ok_or_else(|| format!("Window containing '{}' not found", title))?;
+
+    let img = win.capture_image().map_err(|e| e.to_string())?;
+    let (w, h) = (img.width(), img.height());
+    let raw = img.into_raw();
+    let buf = image::RgbaImage::from_raw(w, h, raw)
+        .ok_or_else(|| "captured image buffer was the wrong size".to_string())?;
+
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let png_path = Path::new(&dir).join(format!("{name}.png"));
+    buf.save(&png_path).map_err(|e| e.to_string())?;
+
+    let mut v: serde_json::Value =
+        serde_json::from_str(&label_json).map_err(|e| e.to_string())?;
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("width".into(), serde_json::json!(w));
+        obj.insert("height".into(), serde_json::json!(h));
+    }
+    let json_path = Path::new(&dir).join(format!("{name}.json"));
+    std::fs::write(
+        json_path,
+        serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Opens an external https URL in the system browser (used for the Ko-fi link).
 #[tauri::command]
 fn open_url(url: String) -> Result<(), String> {
@@ -199,7 +281,7 @@ mod winimpl {
         }
     }
 
-    fn press(key: &str, hold_ms: u64) {
+    pub fn press(key: &str, hold_ms: u64) {
         if let Some((sc, ext)) = scancode(key) {
             send(sc, ext, false);
             sleep(Duration::from_millis(hold_ms));
@@ -248,7 +330,7 @@ mod winimpl {
         BOOL(1)
     }
 
-    fn focus_game(needle: &str) -> bool {
+    pub fn focus_game(needle: &str) -> bool {
         let mut ctx = FindCtx {
             needle: needle.to_lowercase(),
             hwnd: HWND(std::ptr::null_mut()),
@@ -348,7 +430,14 @@ pub fn run() {
         .manage(AppState {
             abort: Arc::new(AtomicBool::new(false)),
         })
-        .invoke_handler(tauri::generate_handler![execute_plan, stop_plan, open_url])
+        .invoke_handler(tauri::generate_handler![
+            execute_plan,
+            stop_plan,
+            open_url,
+            focus_window,
+            send_keys,
+            save_sample
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Gothic Lockpicking Tool");
 }

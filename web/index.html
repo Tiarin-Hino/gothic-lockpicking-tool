@@ -258,6 +258,40 @@
     </div>
   </div>
 
+  <!-- Data collection (desktop app only; for building the training dataset) -->
+  <div class="panel" id="dataGen" style="display:none;">
+    <h2>🧪 Data collection (dev)</h2>
+    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Then this drives the lock to random states from reset and saves a labeled screenshot of each. Reuses the game title / reset key / hold from section 4.</p>
+    <div class="row" style="margin-bottom:12px;">
+      <label>Output folder
+        <input id="dcDir" type="text" placeholder="C:\\lockdata\\lockA" style="width:240px;">
+      </label>
+      <label>Samples
+        <input id="dcCount" type="number" min="1" max="100000" value="500" style="width:80px;">
+      </label>
+      <label>Moves/sample min
+        <input id="dcMin" type="number" min="1" max="50" value="3" style="width:60px;">
+      </label>
+      <label>max
+        <input id="dcMax" type="number" min="1" max="80" value="20" style="width:60px;">
+      </label>
+      <label>Key delay (ms)
+        <input id="dcDelay" type="number" min="0" max="1000" value="110" style="width:64px;">
+      </label>
+      <label>Settle (ms)
+        <input id="dcSettle" type="number" min="0" max="3000" value="350" style="width:64px;">
+      </label>
+      <label>Name prefix
+        <input id="dcPrefix" type="text" value="lock" style="width:90px;">
+      </label>
+    </div>
+    <div class="row">
+      <button id="dcStart" class="primary">⏺ Start collection</button>
+      <button id="dcStop" class="danger">■ Stop</button>
+      <span id="dcStatus" class="hint" style="margin:0;"></span>
+    </div>
+  </div>
+
   <div class="panel">
     <div class="links">
       <div class="linkcol">
@@ -672,11 +706,104 @@ function stopPlan() {
   if (TAURI) TAURI.core.invoke('stop_plan');
 }
 
+/* ---------- Data collection (dev, desktop app only) ---------- */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let dcAbort = false;
+let dcCursor = 0; // tracked selection position across the whole run
+
+function setDc(msg, kind) {
+  const el = $('dcStatus');
+  el.className = kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'hint';
+  el.style.margin = '0';
+  el.textContent = msg;
+}
+
+// Random reachable state from a baseline via a short random walk.
+function randomState(baseline, minLen, maxLen) {
+  let state = baseline.slice();
+  const moves = [];
+  const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+  let tries = 0;
+  while (moves.length < len && tries < len * 6) {
+    tries++;
+    const i = Math.floor(Math.random() * N);
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const ns = applyMove(state, i, dir);
+    if (!ns) continue;            // blocked at an edge — try another move
+    state = ns;
+    moves.push({ i, dir });
+  }
+  return { state, moves };
+}
+
+// Convert solver moves to keystrokes, tracking the persistent cursor.
+function movesToKeys(moves) {
+  const kPrev = $('kPrev').value, kNext = $('kNext').value;
+  const kLeft = $('kLeft').value, kRight = $('kRight').value;
+  const keys = [];
+  for (const mv of moves) {
+    while (dcCursor > mv.i) { keys.push(kPrev); dcCursor--; }
+    while (dcCursor < mv.i) { keys.push(kNext); dcCursor++; }
+    keys.push(mv.dir === -1 ? kRight : kLeft); // mirrored, same as the solution
+  }
+  return keys;
+}
+
+async function collectData() {
+  if (!TAURI) return;
+  dcAbort = false;
+  const dir = $('dcDir').value.trim();
+  if (!dir) { setDc('Set an output folder first.', 'err'); return; }
+  const count  = Math.max(1, parseInt($('dcCount').value, 10) || 1);
+  const minLen = Math.max(1, parseInt($('dcMin').value, 10) || 1);
+  const maxLen = Math.max(minLen, parseInt($('dcMax').value, 10) || minLen);
+  const delay  = Math.max(0, parseInt($('dcDelay').value, 10) || 0);
+  const settle = Math.max(0, parseInt($('dcSettle').value, 10) || 0);
+  const hold   = Math.max(0, parseInt($('exHold').value, 10) || 40);
+  const title  = ($('gameTitle').value || 'Gothic 1 Remake').trim();
+  const resetKey = ($('exReset').value || 'r').trim().toLowerCase();
+  const resetWaitMs = Math.max(0, Math.round((parseFloat($('exResetDelay').value) || 1) * 1000));
+  const prefix = $('dcPrefix').value.trim() || 'lock';
+  const baseline = positions.slice(); // current "Starting positions" = the reset state
+
+  dcCursor = N - 1;
+  $('dcStart').disabled = true;
+  try {
+    const ok = await TAURI.core.invoke('focus_window', { title });
+    setDc(ok ? 'Game focused — collecting…' : 'Game window not found — focus it manually.');
+    await sleep(900);
+
+    for (let s = 0; s < count; s++) {
+      if (dcAbort) { setDc('Stopped at ' + s + '/' + count, 'err'); break; }
+      // Reset to known baseline.
+      await TAURI.core.invoke('send_keys', { keys: [resetKey], holdMs: hold, delayMs: delay });
+      await sleep(resetWaitMs);
+      // Random target from baseline.
+      const { state, moves } = randomState(baseline, minLen, maxLen);
+      const keys = movesToKeys(moves);
+      if (keys.length) await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
+      await sleep(settle);
+      // Capture + label.
+      const name = prefix + '_n' + N + '_' + String(s).padStart(5, '0');
+      const label = JSON.stringify({ n: N, positions: state, reset: baseline });
+      await TAURI.core.invoke('save_sample', { title, dir, name, labelJson: label });
+      setDc('Captured ' + (s + 1) + '/' + count);
+    }
+    if (!dcAbort) setDc('Done — ' + count + ' samples saved to ' + dir, 'ok');
+  } catch (e) {
+    setDc('Error: ' + e, 'err');
+  }
+  $('dcStart').disabled = false;
+}
+
 function initTauri() {
   if (!TAURI) return;
   $('appExec').style.display = 'block';
+  $('dataGen').style.display = 'block';
   $('execBtn').onclick = executePlan;
   $('stopBtn').onclick = stopPlan;
+  $('dcStart').onclick = collectData;
+  $('dcStop').onclick = () => { dcAbort = true; };
 
   // Open external links in the system browser instead of the app webview.
   ['kofiLink', 'ghLink'].forEach(id => {
