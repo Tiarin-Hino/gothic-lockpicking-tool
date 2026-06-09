@@ -40,9 +40,21 @@ running as the Tauri app) drives the lock and saves labeled screenshots.
    **random** solver-tracked move sequence → waits → **captures the game window**
    → writes `<name>.png` + `<name>.json`.
 
-Why random walks (not exhaustive): the full state space is 7^N (≈118k for N=6).
-Random sampling covers each mechanism×position richly at a fraction of the cost.
+Why sampling (not exhaustive): the full state space is 7^N (≈118k for N=6), and
+many states are **unreachable** anyway because the matrix couples mechanisms.
+What the recognizer needs is **marginal coverage** — every plate seen in every
+position — not every global combination (it reads each plate independently).
+
+The harness uses a **coverage-balanced, de-duplicated walk**:
+- a `seen` set (per run) so the same state is never captured twice;
+- per-`(plate, position)` counts; each sample steers toward an under-covered
+  cell (rejection-sampling random walks, with longer walks to reach extremes);
+- stops when every cell reaches **Min per cell**, or **Max samples** is hit, or
+  coverage stalls (remaining positions are unreachable for that lock — reported).
+
 Resetting every sample prevents a dropped keypress from corrupting later labels.
+`seen`/counts are **per run** (per chest+resolution) — the same state on a
+different background/resolution is valuable, not a duplicate.
 
 ### Backend commands (`src-tauri/src/lib.rs`)
 - `focus_window(title)` — bring the game to the foreground.

@@ -261,19 +261,22 @@
   <!-- Data collection (desktop app only; for building the training dataset) -->
   <div class="panel" id="dataGen" style="display:none;">
     <h2>🧪 Data collection (dev)</h2>
-    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives a random reachable state → captures a labeled screenshot. Reuses the game title / reset key / hold from section 4.</p>
+    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives to a fresh state → captures a labeled screenshot. It skips duplicate states and steers toward under-covered <i>(plate, position)</i> cells, stopping when every cell reaches <b>Min per cell</b> (or it hits <b>Max samples</b> / can't reach more). Reuses the game title / reset key / hold from section 4.</p>
     <div class="row" style="margin-bottom:12px;">
       <label>Output folder
         <input id="dcDir" type="text" placeholder="C:\\lockdata\\lockA" style="width:240px;">
       </label>
-      <label>Samples
-        <input id="dcCount" type="number" min="1" max="100000" value="500" style="width:80px;">
+      <label>Min per cell
+        <input id="dcTarget" type="number" min="0" max="5000" value="120" style="width:74px;">
+      </label>
+      <label>Max samples
+        <input id="dcCount" type="number" min="1" max="200000" value="6000" style="width:80px;">
       </label>
       <label>Moves/sample min
-        <input id="dcMin" type="number" min="1" max="50" value="3" style="width:60px;">
+        <input id="dcMin" type="number" min="1" max="50" value="4" style="width:60px;">
       </label>
       <label>max
-        <input id="dcMax" type="number" min="1" max="80" value="20" style="width:60px;">
+        <input id="dcMax" type="number" min="1" max="120" value="24" style="width:60px;">
       </label>
       <label>Key delay (ms)
         <input id="dcDelay" type="number" min="0" max="1000" value="110" style="width:64px;">
@@ -768,6 +771,7 @@ async function collectData() {
   const dir = $('dcDir').value.trim();
   if (!dir) { setDc('Set an output folder first.', 'err'); return; }
   const count  = Math.max(1, parseInt($('dcCount').value, 10) || 1);
+  const target = Math.max(0, parseInt($('dcTarget').value, 10) || 0);
   const minLen = Math.max(1, parseInt($('dcMin').value, 10) || 1);
   const maxLen = Math.max(minLen, parseInt($('dcMax').value, 10) || minLen);
   const delay  = Math.max(0, parseInt($('dcDelay').value, 10) || 0);
@@ -788,27 +792,85 @@ async function collectData() {
     setDc(ok ? 'Game focused — collecting…' : 'Game window not found — focus it manually.');
     await sleep(900);
 
-    for (let s = 0; s < count; s++) {
-      if (dcAbort) { setDc('Stopped at ' + s + '/' + count, 'err'); break; }
-      // 1) Reset the plates to the baseline (reset state).
+    // Per-run coverage tracking (per chest+resolution). The same state at a
+    // different chest/resolution is NOT a duplicate, so these reset each run.
+    const seen = new Set();
+    const counts = Array.from({ length: N }, () => new Array(HOLES).fill(0));
+    const totalCells = N * HOLES;
+    const cellsMet = () => {
+      let m = 0;
+      for (let i = 0; i < N; i++) for (let p = 0; p < HOLES; p++) if (counts[i][p] >= target) m++;
+      return m;
+    };
+    const coverGain = (st) => {
+      let g = 0;
+      for (let i = 0; i < N; i++) if (counts[i][st[i]] < target) g++;
+      return g;
+    };
+
+    const CAND_TRIES = 48;    // random candidates examined per accepted sample (pure compute)
+    const STALL_LIMIT = 200;  // give up if coverage hasn't improved for this many saves
+    let saved = 0, noProgress = 0;
+
+    while (saved < count && !dcAbort) {
+      if (target > 0 && cellsMet() >= totalCells) break; // full coverage reached
+
+      // Pick a fresh state (no game interaction yet). Prefer one that fills an
+      // under-covered cell; fall back to any new state. Use longer walks late in
+      // the search to reach hard/extreme positions.
+      let chosen = null, filler = null;
+      for (let t = 0; t < CAND_TRIES; t++) {
+        const hi = t < CAND_TRIES / 2 ? maxLen : maxLen * 3;
+        const c = randomState(baseline, minLen, hi);
+        const key = c.state.join(',');
+        if (seen.has(key)) continue;                  // de-dupe: never the same state twice
+        if (target > 0 && coverGain(c.state) > 0) { chosen = { ...c, key }; break; }
+        if (!filler) filler = { ...c, key };
+      }
+      const cand = chosen || filler;
+      if (!cand) {                                     // couldn't find any new state at all
+        noProgress++;
+        if (noProgress >= STALL_LIMIT) { setDc('Stopped — no new states found. Saved ' + saved + '.', 'err'); break; }
+        continue;
+      }
+
+      // Drive to it and capture.
       await TAURI.core.invoke('send_keys', { keys: [resetKey], holdMs: hold, delayMs: delay });
       await sleep(resetWaitMs);
-      // 2) Re-align the selection cursor to a known mechanism (M1). The in-game
-      //    reset may move the cursor, so we clamp it deterministically here.
       await clampCursorToM1(hold, delay);
-      // 3) Drive a random reachable state from the baseline and label with it.
-      const { state, moves } = randomState(baseline, minLen, maxLen);
-      const keys = movesToKeys(moves);
+      const keys = movesToKeys(cand.moves);
       if (keys.length) await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
       await sleep(settle);
-      // Capture + label. Filename includes chest + a per-run tag so restarts
-      // never overwrite earlier samples (even into the same folder).
-      const name = prefix + '_c' + chest + '_n' + N + '_' + runTag + '_' + String(s).padStart(5, '0');
-      const label = JSON.stringify({ n: N, positions: state, reset: baseline, chest: chest });
+
+      const name = prefix + '_c' + chest + '_n' + N + '_' + runTag + '_' + String(saved).padStart(5, '0');
+      const label = JSON.stringify({ n: N, positions: cand.state, reset: baseline, chest: chest });
       await TAURI.core.invoke('save_sample', { title, dir, name, labelJson: label });
-      setDc('Captured ' + (s + 1) + '/' + count);
+
+      seen.add(cand.key);
+      for (let i = 0; i < N; i++) counts[i][cand.state[i]]++;
+      saved++;
+
+      // Track coverage progress (only meaningful when a target is set).
+      if (target > 0) {
+        if (chosen) noProgress = 0; else noProgress++;
+        if (noProgress >= STALL_LIMIT) {
+          setDc('Coverage stalled (' + cellsMet() + '/' + totalCells + ' cells) — remaining positions look unreachable. Saved ' + saved + '.', 'err');
+          break;
+        }
+      }
+      const cov = target > 0 ? ('  ·  cells ' + cellsMet() + '/' + totalCells) : '';
+      setDc('Captured ' + saved + ' / ' + count + ' max' + cov);
     }
-    if (!dcAbort) setDc('Done — ' + count + ' samples saved to ' + dir, 'ok');
+    if (dcAbort) {
+      setDc('Stopped — ' + saved + ' samples saved to ' + dir + '.', 'err');
+    } else if (target > 0 && cellsMet() >= totalCells) {
+      setDc('Done — full coverage. ' + saved + ' samples saved to ' + dir + '.', 'ok');
+    } else if (saved >= count) {
+      setDc('Done — hit max ' + count + ' samples' +
+        (target > 0 ? ' (' + cellsMet() + '/' + totalCells + ' cells covered)' : '') +
+        ', saved to ' + dir + '.', 'ok');
+    }
+    // otherwise the loop set a stall/no-new-states message already
   } catch (e) {
     setDc('Error: ' + e, 'err');
   }
