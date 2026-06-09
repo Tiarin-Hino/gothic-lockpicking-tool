@@ -102,7 +102,11 @@ fn save_sample(title: String, dir: String, name: String, label_json: String) -> 
     let windows = xcap::Window::all().map_err(|e| e.to_string())?;
     let win = windows
         .into_iter()
-        .find(|w| w.title().to_lowercase().contains(&needle))
+        .find(|w| {
+            w.title()
+                .map(|t| t.to_lowercase().contains(&needle))
+                .unwrap_or(false)
+        })
         .ok_or_else(|| format!("Window containing '{}' not found", title))?;
 
     let img = win.capture_image().map_err(|e| e.to_string())?;
