@@ -52,9 +52,17 @@ The harness uses a **coverage-balanced, de-duplicated walk**:
 - stops when every cell reaches **Min per cell**, or **Max samples** is hit, or
   coverage stalls (remaining positions are unreachable for that lock — reported).
 
-Resetting every sample prevents a dropped keypress from corrupting later labels.
-`seen`/counts are **per run** (per chest+resolution) — the same state on a
-different background/resolution is valuable, not a duplicate.
+Resetting every sample keeps drift from accumulating. `seen`/counts are **per
+run** (per chest+resolution) — the same state on a different background/resolution
+is valuable, not a duplicate.
+
+**Timing:** the keys themselves can be sent fast (0 ms hold/delay works — the game
+buffers rapid input). What must not be rushed is the **animation**: wait ~1 s
+after a reset before moving (moving mid-reset-animation lands on a transitional
+state → illegal move → broken lockpick) and ~1 s after the moves before the
+screenshot (so the captured frame matches the label). A blocked/illegal move in
+this game consumes a lockpick, so the in-game state must never drift from the
+tool's tracked state.
 
 ### Backend commands (`src-tauri/src/lib.rs`)
 - `focus_window(title)` — bring the game to the foreground.

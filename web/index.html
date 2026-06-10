@@ -261,7 +261,7 @@
   <!-- Data collection (desktop app only; for building the training dataset) -->
   <div class="panel" id="dataGen" style="display:none;">
     <h2>🧪 Data collection (dev)</h2>
-    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives to a fresh state → captures a labeled screenshot. It skips duplicate states and steers toward under-covered <i>(plate, position)</i> cells, stopping when every cell reaches <b>Min per cell</b> (or it hits <b>Max samples</b> / can't reach more). Reuses the game title / reset key / hold from section 4.</p>
+    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives to a fresh state → captures a labeled screenshot. It skips duplicate states and steers toward under-covered <i>(plate, position)</i> cells, stopping when every cell reaches <b>Min per cell</b> (or it hits <b>Max samples</b> / can't reach more). Keys can be fast (0 ms is fine) — what matters is the <b>Animation wait</b> after each reset and move so plates settle before the screenshot. Uses the game title / reset key from section 4.</p>
     <div class="row" style="margin-bottom:12px;">
       <label>Output folder
         <input id="dcDir" type="text" placeholder="C:\\lockdata\\lockA" style="width:240px;">
@@ -273,16 +273,19 @@
         <input id="dcCount" type="number" min="1" max="200000" value="6000" style="width:80px;">
       </label>
       <label>Moves/sample min
-        <input id="dcMin" type="number" min="1" max="50" value="4" style="width:60px;">
+        <input id="dcMin" type="number" min="1" max="30" value="3" style="width:60px;">
       </label>
       <label>max
-        <input id="dcMax" type="number" min="1" max="120" value="24" style="width:60px;">
+        <input id="dcMax" type="number" min="1" max="60" value="12" style="width:60px;">
+      </label>
+      <label>Key hold (ms)
+        <input id="dcHold" type="number" min="0" max="500" value="0" style="width:64px;">
       </label>
       <label>Key delay (ms)
-        <input id="dcDelay" type="number" min="0" max="1000" value="110" style="width:64px;">
+        <input id="dcDelay" type="number" min="0" max="1000" value="0" style="width:64px;">
       </label>
-      <label>Settle (ms)
-        <input id="dcSettle" type="number" min="0" max="3000" value="350" style="width:64px;">
+      <label>Animation wait (s)
+        <input id="dcAnim" type="number" min="0" max="10" step="0.1" value="1" style="width:64px;">
       </label>
       <label>Chest ID
         <input id="dcChest" type="text" value="01" style="width:70px;">
@@ -775,11 +778,10 @@ async function collectData() {
   const minLen = Math.max(1, parseInt($('dcMin').value, 10) || 1);
   const maxLen = Math.max(minLen, parseInt($('dcMax').value, 10) || minLen);
   const delay  = Math.max(0, parseInt($('dcDelay').value, 10) || 0);
-  const settle = Math.max(0, parseInt($('dcSettle').value, 10) || 0);
-  const hold   = Math.max(0, parseInt($('exHold').value, 10) || 40);
+  const hold   = Math.max(0, parseInt($('dcHold').value, 10) || 0);
+  const animMs = Math.max(0, Math.round((parseFloat($('dcAnim').value) || 1) * 1000)); // settle + reset wait
   const title  = ($('gameTitle').value || 'Gothic 1 Remake').trim();
   const resetKey = ($('exReset').value || 'r').trim().toLowerCase();
-  const resetWaitMs = Math.max(0, Math.round((parseFloat($('exResetDelay').value) || 1) * 1000));
   const prefix = $('dcPrefix').value.trim() || 'lock';
   const chest = ($('dcChest').value.trim() || '00').replace(/[^A-Za-z0-9_-]/g, '');
   const runTag = Date.now().toString(36); // unique per run → restarts never overwrite
@@ -820,7 +822,10 @@ async function collectData() {
       // the search to reach hard/extreme positions.
       let chosen = null, filler = null;
       for (let t = 0; t < CAND_TRIES; t++) {
-        const hi = t < CAND_TRIES / 2 ? maxLen : maxLen * 3;
+        // Keep walks short to minimize keypresses (a dropped key desyncs the
+        // state and can break a pick). A small bump on later tries helps reach
+        // extremes without resorting to long, fragile sequences.
+        const hi = t < CAND_TRIES / 2 ? maxLen : maxLen + 4;
         const c = randomState(baseline, minLen, hi);
         const key = c.state.join(',');
         if (seen.has(key)) continue;                  // de-dupe: never the same state twice
@@ -834,13 +839,17 @@ async function collectData() {
         continue;
       }
 
-      // Drive to it and capture.
+      // Reset to baseline and WAIT for the reset animation to finish before
+      // moving (moving mid-animation lands on a transitional state → illegal
+      // move → broken pick). Keys themselves can be fast; animations cannot.
       await TAURI.core.invoke('send_keys', { keys: [resetKey], holdMs: hold, delayMs: delay });
-      await sleep(resetWaitMs);
+      await sleep(animMs);
       await clampCursorToM1(hold, delay);
+      // Drive the moveset fast, then wait for the plate animation to settle
+      // before screenshotting so the captured frame matches the label.
       const keys = movesToKeys(cand.moves);
       if (keys.length) await TAURI.core.invoke('send_keys', { keys, holdMs: hold, delayMs: delay });
-      await sleep(settle);
+      await sleep(animMs);
 
       const name = prefix + '_c' + chest + '_n' + N + '_' + runTag + '_' + String(saved).padStart(5, '0');
       const label = JSON.stringify({ n: N, positions: cand.state, reset: baseline, chest: chest });
