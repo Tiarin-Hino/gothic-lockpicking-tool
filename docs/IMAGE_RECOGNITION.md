@@ -89,6 +89,12 @@ Each sample is a PNG plus a sidecar JSON:
 - `reset` — the baseline positions for that lock (provenance/debugging).
 - `chest` — background/chest identifier (for variety tracking + stratified splits).
 - `width`/`height` — captured window size (resolution bucket).
+- `seq`, `seed`, `moves`, `movesReadable`, `states`, `replayKeys` — diagnostics.
+  With a fixed **Seed** the whole run is reproducible (break at sample #N recurs
+  at #N). To find a matrix error after a broken pick: open that sample's JSON,
+  reset the lock in-game, press `replayKeys` by hand, and compare the plates to
+  `states` step by step — the first mismatch is the wrong matrix coupling.
+  (Training ignores these extra fields; it only reads `n`/`positions`.)
 
 Filenames are `<prefix>_c<chest>_n<N>_<runTag>_<index>.png`, where `runTag` is a
 per-run timestamp so re-running into the same folder never overwrites samples.

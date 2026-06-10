@@ -261,7 +261,7 @@
   <!-- Data collection (desktop app only; for building the training dataset) -->
   <div class="panel" id="dataGen" style="display:none;">
     <h2>🧪 Data collection (dev)</h2>
-    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives to a fresh state → captures a labeled screenshot. It skips duplicate states and steers toward under-covered <i>(plate, position)</i> cells, stopping when every cell reaches <b>Min per cell</b> (or it hits <b>Max samples</b> / can't reach more). Keys can be fast (0 ms is fine) — what matters is the <b>Animation wait</b> after each reset and move so plates settle before the screenshot. Uses the game title / reset key from section 4.</p>
+    <p class="hint">For building the image-recognition dataset. Set up this lock above (N + matrix), set <b>Starting positions</b> to the lock's <b>reset</b> state, and confirm the solver actually opens it. Each sample it: presses reset → re-aligns the selection to M1 → drives to a fresh state → captures a labeled screenshot. It skips duplicate states and steers toward under-covered <i>(plate, position)</i> cells, stopping when every cell reaches <b>Min per cell</b> (or it hits <b>Max samples</b> / can't reach more). Keys can be fast (0 ms is fine) — what matters is the <b>Animation wait</b> after each reset and move so plates settle before the screenshot. Uses the game title / reset key from section 4. <b>Diagnosing breaks:</b> set a <b>Seed</b> to make the run reproducible; each sample's JSON records <code>seq</code>, <code>seed</code>, <code>moves</code> and <code>replayKeys</code> so you can replay the exact sample by hand from reset and find where the game diverges from the model.</p>
     <div class="row" style="margin-bottom:12px;">
       <label>Output folder
         <input id="dcDir" type="text" placeholder="C:\\lockdata\\lockA" style="width:240px;">
@@ -292,6 +292,9 @@
       </label>
       <label>Name prefix
         <input id="dcPrefix" type="text" value="lock" style="width:90px;">
+      </label>
+      <label>Seed (optional)
+        <input id="dcSeed" type="text" placeholder="random" style="width:110px;">
       </label>
     </div>
     <div class="row">
@@ -718,7 +721,25 @@ function stopPlan() {
 /* ---------- Data collection (dev, desktop app only) ---------- */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let dcAbort = false;
-let dcCursor = 0; // tracked selection position across the whole run
+let dcCursor = 0;       // tracked selection position across the whole run
+let dcRng = Math.random; // replaced with a seeded PRNG per run for reproducibility
+
+// Deterministic PRNG (mulberry32) seeded from a string — makes a whole run
+// reproducible, so a break at sample #N recurs at #N for the same seed.
+function rngFromSeed(seedStr) {
+  let h = 1779033703 ^ seedStr.length;
+  for (let i = 0; i < seedStr.length; i++) {
+    h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  let a = h >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function setDc(msg, kind) {
   const el = $('dcStatus');
@@ -730,19 +751,20 @@ function setDc(msg, kind) {
 // Random reachable state from a baseline via a short random walk.
 function randomState(baseline, minLen, maxLen) {
   let state = baseline.slice();
-  const moves = [];
-  const len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+  const moves = [], states = [];
+  const len = minLen + Math.floor(dcRng() * (maxLen - minLen + 1));
   let tries = 0;
   while (moves.length < len && tries < len * 6) {
     tries++;
-    const i = Math.floor(Math.random() * N);
-    const dir = Math.random() < 0.5 ? -1 : 1;
+    const i = Math.floor(dcRng() * N);
+    const dir = dcRng() < 0.5 ? -1 : 1;
     const ns = applyMove(state, i, dir);
     if (!ns) continue;            // blocked at an edge — try another move
     state = ns;
     moves.push({ i, dir });
+    states.push(state.slice());   // intermediate states for replay/diagnosis
   }
-  return { state, moves };
+  return { state, moves, states };
 }
 
 // Convert solver moves to keystrokes, tracking the persistent cursor.
@@ -787,11 +809,17 @@ async function collectData() {
   const runTag = Date.now().toString(36); // unique per run → restarts never overwrite
   const baseline = positions.slice(); // current "Starting positions" = the reset state
 
+  // Seed the PRNG so the run is reproducible. Empty field → generate one and
+  // record it, so every run can be replayed via its recorded seed.
+  const usedSeed = ($('dcSeed').value || '').trim() || ('r' + Math.floor(Math.random() * 1e9).toString(36));
+  dcRng = rngFromSeed(usedSeed);
+  const clampKeyTok = $('kPrev').value; // for logging the full replay sequence
+
   dcCursor = 0;
   $('dcStart').disabled = true;
   try {
     const ok = await TAURI.core.invoke('focus_window', { title });
-    setDc(ok ? 'Game focused — collecting…' : 'Game window not found — focus it manually.');
+    setDc((ok ? 'Game focused' : 'Game window NOT found — focus it manually') + ' — seed ' + usedSeed);
     await sleep(900);
 
     // Per-run coverage tracking (per chest+resolution). The same state at a
@@ -852,7 +880,16 @@ async function collectData() {
       await sleep(animMs);
 
       const name = prefix + '_c' + chest + '_n' + N + '_' + runTag + '_' + String(saved).padStart(5, '0');
-      const label = JSON.stringify({ n: N, positions: cand.state, reset: baseline, chest: chest });
+      // Diagnostics: seq + seed make the sample reproducible; moves/states/keys
+      // let you replay it by hand from reset to find a matrix error if a pick breaks.
+      const movesReadable = cand.moves.map(m => 'M' + (m.i + 1) + ' ' + (m.dir === -1 ? 'R' : 'L'));
+      const replayKeys = new Array(N + 2).fill(clampKeyTok).concat(keys); // clamp + moves, from reset
+      const label = JSON.stringify({
+        n: N, positions: cand.state, reset: baseline, chest: chest,
+        seq: saved, seed: usedSeed,
+        moves: cand.moves, movesReadable: movesReadable,
+        states: cand.states, replayKeys: replayKeys
+      });
       await TAURI.core.invoke('save_sample', { title, dir, name, labelJson: label });
 
       seen.add(cand.key);
@@ -868,7 +905,7 @@ async function collectData() {
         }
       }
       const cov = target > 0 ? ('  ·  cells ' + cellsMet() + '/' + totalCells) : '';
-      setDc('Captured ' + saved + ' / ' + count + ' max' + cov);
+      setDc('Captured ' + saved + ' / ' + count + ' max' + cov + '  ·  seed ' + usedSeed);
     }
     if (dcAbort) {
       setDc('Stopped — ' + saved + ' samples saved to ' + dir + '.', 'err');
