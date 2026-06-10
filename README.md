@@ -3,10 +3,12 @@
 A solver and optional auto-player for the multi-mechanism lockpick puzzle in the
 **Gothic 1 Remake**.
 
-- **Web tool** — set up the lock, describe how the mechanisms interact, and get
-  the shortest sequence of moves to open it. Runs entirely in your browser,
-  nothing to install, works on any OS.
-  👉 **https://gothic-lockpicking-tool.tiarinhino.com**
+- **Web tool** *(🚧 WIP — not yet hosted)* — set up the lock, describe how the
+  mechanisms interact, and get the shortest sequence of moves to open it. Runs
+  entirely in your browser, nothing to install, works on any OS. Hosting on AWS
+  is in progress.
+  👉 **Live URL: WIP** — _coming soon_
+  (until then, open `web/index.html` locally in any browser).
 - **Desktop app** *(Windows, optional)* — the same tool as a downloadable app
   with an **Execute** button that focuses the game and plays the moves for you.
 
@@ -21,7 +23,11 @@ the shortest combination of moves that centres them all.
 
 ## Using the web tool
 
-1. Open the [web tool](https://gothic-lockpicking-tool.tiarinhino.com).
+> **🚧 WIP:** the hosted web tool is not live yet (AWS hosting in progress). For
+> now, open `web/index.html` locally in any browser — the steps below are the
+> same. The live URL will be published here once available.
+
+1. Open the web tool (hosted URL **WIP**; until then open `web/index.html`).
 2. Set the number of mechanisms and click the holes to match your in-game state.
 3. Fill in the **interaction matrix** — for each mechanism, how the others react
    when you move it (None / Same / Opposite). Map the game's *mirror* / *counter*
@@ -51,7 +57,8 @@ A single portable `.exe` — the full solver UI plus a one-click auto-player.
 A script alternative to the desktop app, in the `automation/` folder (standard
 library only, no `pip install`). Input is sent via Windows `SendInput`, so the
 **automation runs on Windows**. On macOS/Linux, use the **web tool** for the
-solution and follow the move list in-game.
+solution and follow the move list in-game (web tool hosting is **WIP** — open
+`web/index.html` locally in the meantime).
 
 ```bash
 # 1. Copy the key plan from the web tool, then:
